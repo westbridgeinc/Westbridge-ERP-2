@@ -36,7 +36,7 @@ import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { loginBodySchema } from "../types/schemas/auth.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { prisma } from "../lib/data/prisma.js";
-import { COOKIE } from "../lib/constants.js";
+import { COOKIE, COOKIE_SAME_SITE } from "../lib/constants.js";
 import { reportSecurityEvent } from "../lib/security-monitor.js";
 import { requestPasswordReset } from "../lib/services/password-reset.service.js";
 import { applyPasswordReset } from "../lib/services/password-reset.service.js";
@@ -409,7 +409,7 @@ router.post("/login", async (req: Request, res: Response) => {
     res.cookie(COOKIE.SESSION_NAME, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "none" as const,
+      sameSite: COOKIE_SAME_SITE,
       maxAge: maxAge * 1000, // Express expects milliseconds
       path: "/",
     });
@@ -491,12 +491,12 @@ router.post("/logout", async (req: Request, res: Response) => {
   // Clear cookies
   res.clearCookie(COOKIE.SESSION_NAME, {
     path: "/",
-    sameSite: "none" as const,
+    sameSite: COOKIE_SAME_SITE,
     secure: true,
   });
   res.clearCookie(COOKIE.CSRF_NAME, {
     path: "/",
-    sameSite: "none" as const,
+    sameSite: COOKIE_SAME_SITE,
     secure: true,
   });
 

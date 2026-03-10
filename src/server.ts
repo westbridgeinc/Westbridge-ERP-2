@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
+import { logger } from "./lib/logger.js";
 
 // Route imports
 import authRoutes from "./routes/auth.routes.js";
@@ -21,6 +22,7 @@ import healthRoutes from "./routes/health.routes.js";
 import eventsRoutes from "./routes/events.routes.js";
 import webhooksRoutes from "./routes/webhooks.routes.js";
 import miscRoutes from "./routes/misc.routes.js";
+import cspRoutes from "./routes/csp.routes.js";
 import { startWorkers } from "./workers/index.js";
 import { scheduleCleanupJobs } from "./lib/jobs/queue.js";
 
@@ -39,7 +41,7 @@ app.use(cors({
 }));
 
 app.use(cookieParser());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "1mb", type: ["application/json", "application/csp-report"] }));
 app.use(express.urlencoded({ extended: true }));
 
 // Also parse text/plain for analytics beacon requests
@@ -51,7 +53,7 @@ app.use((req, _res, next) => {
   _res.on("finish", () => {
     const duration = Date.now() - start;
     if (process.env.NODE_ENV !== "test") {
-      console.log(`${req.method} ${req.path} ${_res.statusCode} ${duration}ms`);
+      logger.info("HTTP request", { method: req.method, path: req.path, status: _res.statusCode, duration_ms: duration });
     }
   });
   next();
@@ -75,6 +77,7 @@ app.use("/api", healthRoutes);
 app.use("/api", eventsRoutes);
 app.use("/api", webhooksRoutes);
 app.use("/api", miscRoutes);
+app.use("/api", cspRoutes);
 
 // ─── 404 Handler ─────────────────────────────────────────────────────────────
 
@@ -85,17 +88,17 @@ app.use((_req, res) => {
 // ─── Error Handler ───────────────────────────────────────────────────────────
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error("Unhandled error:", err);
+  logger.error("Unhandled error", { error: err.message, stack: err.stack });
   res.status(500).json({ ok: false, error: { code: "SERVER_ERROR", message: "Internal server error" } });
 });
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
-  console.log(`Westbridge API server running on port ${PORT}`);
+  logger.info("Westbridge API server running", { port: PORT });
   startWorkers();
   scheduleCleanupJobs().catch((err) => {
-    console.error("Failed to schedule cleanup jobs:", err);
+    logger.error("Failed to schedule cleanup jobs", { error: err instanceof Error ? err.message : String(err) });
   });
 });
 

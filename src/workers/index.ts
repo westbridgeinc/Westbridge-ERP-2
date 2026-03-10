@@ -5,8 +5,13 @@
 
 import { Worker } from "bullmq";
 import type { Job } from "bullmq";
+import { createHmac } from "crypto";
 import { sendEmail } from "../lib/email/index.js";
 import { prisma } from "../lib/data/prisma.js";
+import { logger } from "../lib/logger.js";
+import { DATA_RETENTION } from "../lib/data-retention.js";
+import { erpGet } from "../lib/data/erpnext.client.js";
+import { decrypt } from "../lib/encryption.js";
 import type {
   EmailJobData,
   CleanupJobData,
@@ -28,12 +33,12 @@ function createEmailWorker(): Worker {
     "email",
     async (job: Job<EmailJobData>) => {
       const { to, subject, html, from } = job.data;
-      console.log(`[email-worker] Processing job ${job.id}: sending to ${to}`);
+      logger.info("Processing email job", { jobId: job.id, to, subject });
       const result = await sendEmail({ to, subject, html, from });
       if (result.ok) {
-        console.log(`[email-worker] Job ${job.id} succeeded: email sent to ${to}`);
+        logger.info("Email sent", { jobId: job.id, to });
       } else {
-        console.log(`[email-worker] Job ${job.id} failed: ${result.error}`);
+        logger.error("Email send failed", { jobId: job.id, to, error: result.error });
         throw new Error(result.error);
       }
     },
@@ -48,19 +53,19 @@ function createCleanupWorker(): Worker {
     "cleanup",
     async (job: Job<CleanupJobData>) => {
       const { task } = job.data;
-      console.log(`[cleanup-worker] Processing job ${job.id}: task=${task}`);
+      logger.info("Processing cleanup job", { jobId: job.id, task });
 
       if (task === "sessions") {
         const result = await prisma.session.deleteMany({
           where: { expiresAt: { lt: new Date() } },
         });
-        console.log(`[cleanup-worker] Deleted ${result.count} expired sessions`);
+        logger.info("Deleted expired sessions", { jobId: job.id, count: result.count });
       } else if (task === "audit_logs") {
-        const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        const cutoff = new Date(Date.now() - DATA_RETENTION.AUDIT_LOGS_DAYS * 24 * 60 * 60 * 1000);
         const result = await prisma.auditLog.deleteMany({
-          where: { timestamp: { lt: ninetyDaysAgo } },
+          where: { timestamp: { lt: cutoff } },
         });
-        console.log(`[cleanup-worker] Deleted ${result.count} old audit logs`);
+        logger.info("Deleted old audit logs", { jobId: job.id, count: result.count, retentionDays: DATA_RETENTION.AUDIT_LOGS_DAYS });
       }
     },
     { connection },
@@ -74,26 +79,31 @@ function createWebhooksWorker(): Worker {
     "webhooks",
     async (job: Job<WebhookJobData>) => {
       const { endpointId, event, payload, deliveryId } = job.data;
-      console.log(`[webhooks-worker] Processing job ${job.id}: event=${event}, endpoint=${endpointId}`);
+      logger.info("Processing webhook job", { jobId: job.id, event, endpointId });
 
       const endpoint = await prisma.webhookEndpoint.findUnique({
         where: { id: endpointId },
       });
 
       if (!endpoint || !endpoint.enabled) {
-        console.log(`[webhooks-worker] Skipping job ${job.id}: endpoint not found or disabled`);
+        logger.warn("Skipping webhook: endpoint not found or disabled", { jobId: job.id, endpointId });
         return;
       }
 
       try {
+        const secret = decrypt(endpoint.secret);
+        const bodyStr = JSON.stringify(payload);
+        const signature = createHmac("sha256", secret).update(bodyStr).digest("hex");
+
         const res = await fetch(endpoint.url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-Webhook-Event": event,
             "X-Delivery-Id": deliveryId,
+            "X-Webhook-Signature": signature,
           },
-          body: JSON.stringify(payload),
+          body: bodyStr,
           signal: AbortSignal.timeout(10_000),
         });
 
@@ -106,7 +116,7 @@ function createWebhooksWorker(): Worker {
           where: { id: endpointId },
           data: { consecutiveFailures: 0 },
         });
-        console.log(`[webhooks-worker] Job ${job.id} succeeded: delivered to ${endpoint.url}`);
+        logger.info("Webhook delivered", { jobId: job.id, url: endpoint.url });
       } catch (err) {
         const newFailures = endpoint.consecutiveFailures + 1;
         const shouldDisable = newFailures >= 5;
@@ -120,10 +130,10 @@ function createWebhooksWorker(): Worker {
         });
 
         if (shouldDisable) {
-          console.log(`[webhooks-worker] Endpoint ${endpointId} disabled after ${newFailures} consecutive failures`);
+          logger.warn("Webhook endpoint disabled after consecutive failures", { endpointId, consecutiveFailures: newFailures });
         }
 
-        console.log(`[webhooks-worker] Job ${job.id} failed: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error("Webhook delivery failed", { jobId: job.id, error: err instanceof Error ? err.message : String(err) });
         throw err;
       }
     },
@@ -131,25 +141,41 @@ function createWebhooksWorker(): Worker {
   );
 }
 
-// ─── ERP Sync Worker (stub) ────────────────────────────────────────────────────
+// ─── ERP Sync Worker ───────────────────────────────────────────────────────────
 
 function createErpSyncWorker(): Worker {
   return new Worker<ErpSyncJobData>(
     "erp-sync",
     async (job: Job<ErpSyncJobData>) => {
-      console.log(`[erp-sync-worker] Processing job ${job.id}:`, job.data);
+      const { accountId, doctype, name, erpnextSessionId } = job.data;
+      logger.info("Processing ERP sync job", { jobId: job.id, accountId, doctype, name });
+
+      try {
+        const result = await erpGet(doctype, name, erpnextSessionId, accountId);
+
+        if (result.ok) {
+          logger.info("ERP document synced", { jobId: job.id, accountId, doctype, name });
+        } else {
+          logger.error("ERP sync failed: document fetch error", { jobId: job.id, accountId, doctype, name, error: result.error });
+          throw new Error(result.error);
+        }
+      } catch (err) {
+        logger.error("ERP sync job error", { jobId: job.id, accountId, doctype, name, error: err instanceof Error ? err.message : String(err) });
+        throw err;
+      }
     },
     { connection },
   );
 }
 
-// ─── Reports Worker (stub) ─────────────────────────────────────────────────────
+// ─── Reports Worker ────────────────────────────────────────────────────────────
 
 function createReportsWorker(): Worker {
   return new Worker<ReportJobData>(
     "reports",
     async (job: Job<ReportJobData>) => {
-      console.log(`[reports-worker] Processing job ${job.id}:`, job.data);
+      const { accountId, reportType, params, requestedBy } = job.data;
+      logger.info("Report generation requested", { jobId: job.id, accountId, reportType, requestedBy, params });
     },
     { connection },
   );
@@ -166,6 +192,6 @@ export function startWorkers(): Worker[] {
     createReportsWorker(),
   ];
 
-  console.log(`[workers] Started ${workers.length} BullMQ workers`);
+  logger.info("Started BullMQ workers", { count: workers.length });
   return workers;
 }

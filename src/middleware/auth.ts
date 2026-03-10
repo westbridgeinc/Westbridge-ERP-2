@@ -4,7 +4,7 @@
 
 import type { Request, Response, NextFunction } from "express";
 import { validateSession } from "../lib/services/session.service.js";
-import { COOKIE } from "../lib/constants.js";
+import { COOKIE, COOKIE_SAME_SITE } from "../lib/constants.js";
 
 export interface SessionData {
   userId: string;
@@ -36,7 +36,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   // Reject obviously malformed tokens
   const SESSION_TOKEN_REGEX = /^[A-Za-z0-9\-_]+$/;
   if (!SESSION_TOKEN_REGEX.test(sessionToken)) {
-    res.clearCookie(COOKIE.SESSION_NAME, { path: "/", sameSite: "none" as const, secure: true });
+    res.clearCookie(COOKIE.SESSION_NAME, { path: "/", sameSite: COOKIE_SAME_SITE, secure: true });
     res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED", message: "Invalid session" } });
     return;
   }
@@ -48,7 +48,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const result = await validateSession(sessionToken, fakeRequest);
 
     if (!result.ok) {
-      res.clearCookie(COOKIE.SESSION_NAME, { path: "/", sameSite: "none" as const, secure: true });
+      res.clearCookie(COOKIE.SESSION_NAME, { path: "/", sameSite: COOKIE_SAME_SITE, secure: true });
       res.status(401).json({ ok: false, error: { code: "SESSION_EXPIRED", message: "Session expired or invalid" } });
       return;
     }

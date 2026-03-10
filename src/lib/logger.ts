@@ -7,7 +7,7 @@
  */
 import pino from "pino";
 
-const isDev = process.env.NODE_ENV !== "production";
+const isDev = process.env.NODE_ENV === "development";
 
 /** Fields that must never appear in log output. */
 const REDACT_PATHS = [

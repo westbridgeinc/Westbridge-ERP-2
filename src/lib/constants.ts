@@ -68,6 +68,13 @@ export const LOCALE = {
 export const CURRENCY_CODES = ["USD", "EUR", "GBP", "CAD"] as const;
 export type CurrencyCode = (typeof CURRENCY_CODES)[number];
 
+/**
+ * sameSite policy — "none" is required for cross-origin frontend↔backend.
+ * Set COOKIE_SAME_SITE=lax if deploying frontend and API on the same domain.
+ */
+export const COOKIE_SAME_SITE: "none" | "lax" | "strict" =
+  (process.env.COOKIE_SAME_SITE as "none" | "lax" | "strict") ?? "none";
+
 export const SECURITY = {
   SESSION_EXPIRY_DAYS: 7,
   IDLE_TIMEOUT_MINUTES: 30,

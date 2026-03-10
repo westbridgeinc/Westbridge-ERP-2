@@ -13,21 +13,22 @@ import {
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { getRedis } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
+import { matchesCidr } from "../lib/ip-utils.js";
+import type { CidrRange } from "../lib/ip-utils.js";
 
 const router = Router();
 
 const WEBHOOK_IDEMPOTENCY_TTL_SEC = 24 * 60 * 60; // 24 hours
 
-/** 2Checkout IPN source IP ranges (CIDR). */
-const TWOCHECKOUT_IP_PREFIXES = [
-  "86.105.46.",   // 86.105.46.0/24
-  "195.65.26.",   // 195.65.26.0/24
-  "195.242.",     // 195.242.0.0/16
+/** 2Checkout IPN source IP ranges (CIDR notation). */
+const TWOCHECKOUT_CIDRS: CidrRange[] = [
+  { network: "86.105.46.0", prefix: 24 },
+  { network: "195.65.26.0", prefix: 24 },
+  { network: "195.242.0.0", prefix: 16 },
 ];
 
 function is2CheckoutIP(ip: string): boolean {
-  const trimmed = ip.trim();
-  return TWOCHECKOUT_IP_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+  return matchesCidr(ip, TWOCHECKOUT_CIDRS);
 }
 
 // ---------------------------------------------------------------------------
