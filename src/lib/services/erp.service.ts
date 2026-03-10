@@ -7,6 +7,7 @@ import {
   erpGet,
   erpCreate,
   erpUpdate,
+  erpDelete,
   type ListParams,
 } from "../data/erpnext.client.js";
 import type { Result } from "../utils/result.js";
@@ -54,4 +55,14 @@ export async function updateDoc(
 ): Promise<Result<unknown, string>> {
   if (!doctype?.trim() || !name?.trim()) return { ok: false, error: "doctype and name required" };
   return erpUpdate(doctype, name, sessionId, updates, accountId);
+}
+
+export async function deleteDoc(
+  doctype: string,
+  name: string,
+  sessionId: string,
+  accountId?: string
+): Promise<Result<unknown, string>> {
+  if (!doctype?.trim() || !name?.trim()) return { ok: false, error: "doctype and name required" };
+  return erpDelete(doctype, name, sessionId, accountId);
 }

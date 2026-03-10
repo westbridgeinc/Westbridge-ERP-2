@@ -14,7 +14,8 @@
  */
 
 import { Router, Request, Response } from "express";
-import { createHash, timingSafeEqual } from "crypto";
+import { createHash } from "crypto";
+import bcrypt from "bcrypt";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 
@@ -47,8 +48,20 @@ import { validatePassword } from "../lib/password-policy.js";
 
 const MAX_BODY_BYTES = 1_048_576;
 
-function hashPassword(password: string): string {
-  return createHash("sha256").update(password).digest("hex");
+const BCRYPT_ROUNDS = 12;
+
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  // Support legacy SHA-256 hashes (64 char hex) during migration
+  if (hash.length === 64 && /^[a-f0-9]+$/.test(hash)) {
+    const { createHash } = await import("node:crypto");
+    const sha256 = createHash("sha256").update(password).digest("hex");
+    return sha256 === hash;
+  }
+  return bcrypt.compare(password, hash);
 }
 
 // ---------------------------------------------------------------------------
@@ -906,11 +919,7 @@ router.post("/change-password", async (req: Request, res: Response) => {
         );
     }
 
-    const currentHash = Buffer.from(hashPassword(currentPassword));
-    const storedHash = Buffer.from(user.passwordHash ?? "");
-    const match =
-      currentHash.length === storedHash.length &&
-      timingSafeEqual(currentHash, storedHash);
+    const match = await verifyPassword(currentPassword, user.passwordHash ?? "");
     if (!match) {
       return res
         .status(401)
@@ -958,10 +967,11 @@ router.post("/change-password", async (req: Request, res: Response) => {
 
     // --- Update hash and revoke all other sessions (keep current only) ---
     const tokenHash = createHash("sha256").update(token).digest("hex");
+    const newHash = await hashPassword(newPassword);
     await prisma.$transaction([
       prisma.user.update({
         where: { id: user.id },
-        data: { passwordHash: hashPassword(newPassword) },
+        data: { passwordHash: newHash },
       }),
       prisma.session.deleteMany({
         where: { userId: user.id, token: { not: tokenHash } },

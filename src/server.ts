@@ -21,6 +21,8 @@ import healthRoutes from "./routes/health.routes.js";
 import eventsRoutes from "./routes/events.routes.js";
 import webhooksRoutes from "./routes/webhooks.routes.js";
 import miscRoutes from "./routes/misc.routes.js";
+import { startWorkers } from "./workers/index.js";
+import { scheduleCleanupJobs } from "./lib/jobs/queue.js";
 
 const app = express();
 const PORT = parseInt(process.env.PORT ?? "4000", 10);
@@ -91,6 +93,10 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 app.listen(PORT, () => {
   console.log(`Westbridge API server running on port ${PORT}`);
+  startWorkers();
+  scheduleCleanupJobs().catch((err) => {
+    console.error("Failed to schedule cleanup jobs:", err);
+  });
 });
 
 export default app;

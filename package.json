@@ -21,6 +21,7 @@
     "@opentelemetry/sdk-node": "^0.213.0",
     "@prisma/client": "^6.4.1",
     "@sentry/node": "^9.5.0",
+    "bcrypt": "^6.0.0",
     "bullmq": "^5.40.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -39,6 +40,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",

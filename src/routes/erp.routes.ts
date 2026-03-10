@@ -8,7 +8,7 @@ import { requireAuth } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../lib/data/prisma.js";
 import { ALLOWED_DOCTYPES_SET } from "../lib/erp-constants.js";
-import { getDoc, createDoc } from "../lib/services/erp.service.js";
+import { getDoc, createDoc, updateDoc, deleteDoc } from "../lib/services/erp.service.js";
 import { erpDocCreateBodySchema } from "../types/schemas/erp.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { reportSecurityEvent } from "../lib/security-monitor.js";
@@ -516,6 +516,238 @@ router.post("/erp/doc", requireAuth, async (req: Request, res: Response) => {
     // Meter billable doc creation — fire-and-forget
     const { meter } = await import("../lib/metering.js");
     meter.increment(session.accountId, "erp_docs_created").catch(() => {});
+    res.set(responseHeaders());
+    return res.json(apiSuccess(result.data, meta()));
+  } catch (error) {
+    Sentry.captureException(error, { extra: { request_id: requestId } });
+    return res.status(500).json(
+      apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta())
+    );
+  }
+});
+
+// ─── PUT /erp/doc ──────────────────────────────────────────────────────────────
+
+router.put("/erp/doc", requireAuth, async (req: Request, res: Response) => {
+  const start = Date.now();
+  const requestId = getRequestId(req as any);
+  const meta = () => apiMeta({ request_id: requestId });
+  const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
+
+  try {
+    const contentLength = parseInt(req.headers["content-length"] as string ?? "0", 10);
+    if (contentLength > MAX_BODY_BYTES) {
+      res.set(responseHeaders());
+      return res.status(413).json(
+        apiError("PAYLOAD_TOO_LARGE", "Request body exceeds 1MB limit", undefined, meta())
+      );
+    }
+
+    const session = (req as any).session;
+    const ctx = auditContext(req as any);
+
+    // CSRF must be validated before any business logic
+    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
+    const csrfHeader = req.headers["x-csrf-token"] as string ?? req.headers["X-CSRF-Token"] as string;
+    if (!validateCsrf(csrfHeader, csrfCookie)) {
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "erp.doc.update.csrf_failed",
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        severity: "warn",
+        outcome: "failure",
+      });
+      reportSecurityEvent({
+        type: "csrf_attack",
+        userId: session.userId,
+        accountId: session.accountId,
+        ipAddress: ctx.ipAddress,
+        details: "CSRF validation failed on erp.doc.update",
+      });
+      res.set(responseHeaders());
+      return res.status(403).json(
+        apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta())
+      );
+    }
+
+    if (!session.erpnextSid) {
+      res.set(responseHeaders());
+      return res.status(401).json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
+    }
+
+    const rateLimitPut = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/erp/doc");
+    if (!rateLimitPut.allowed) {
+      res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimitPut) });
+      return res.status(429).json(
+        apiError("RATE_LIMIT", "Too many requests. Try again in a minute.", undefined, meta())
+      );
+    }
+
+    const body = req.body;
+
+    const parsed = erpDocCreateBodySchema.safeParse(body);
+    if (!parsed.success) {
+      const first = parsed.error.flatten().fieldErrors;
+      const message = (first.doctype as string[])?.[0] ?? "Invalid request";
+      res.set(responseHeaders());
+      return res.status(400).json(
+        apiError("VALIDATION_ERROR", message, undefined, meta())
+      );
+    }
+
+    const FORBIDDEN_FIELDS = new Set([
+      "docstatus", "owner", "modified_by", "creation", "modified",
+      "idx", "parent", "parentfield", "parenttype", "amended_from",
+    ]);
+    const { doctype, name, ...rawData } = parsed.data as { doctype: string; name: string; [k: string]: unknown };
+    const data = Object.fromEntries(
+      Object.entries(rawData).filter(([k]) => !FORBIDDEN_FIELDS.has(k))
+    );
+
+    if (!name) {
+      res.set(responseHeaders());
+      return res.status(400).json(
+        apiError("BAD_REQUEST", "name is required for update", undefined, meta())
+      );
+    }
+
+    const ALLOWED_DOCTYPES_PUT = new Set([
+      "Sales Invoice", "Sales Order", "Purchase Invoice", "Purchase Order",
+      "Quotation", "Customer", "Supplier", "Item", "Employee",
+      "Journal Entry", "Payment Entry", "Stock Entry", "Expense Claim",
+      "Leave Application", "Salary Slip", "BOM",
+    ]);
+    if (!ALLOWED_DOCTYPES_PUT.has(doctype)) {
+      res.set(responseHeaders());
+      return res.status(400).json(
+        apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta())
+      );
+    }
+
+    const result = await updateDoc(doctype, name, session.erpnextSid as string, data as Record<string, unknown>, session.accountId);
+    if (!result.ok) {
+      res.set(responseHeaders());
+      return res.status(502).json(
+        apiError("ERP_ERROR", result.error, undefined, meta())
+      );
+    }
+    void logAudit({
+      accountId: session.accountId,
+      userId: session.userId,
+      action: "erp.doc.update",
+      resource: doctype,
+      resourceId: name,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      severity: "info",
+      outcome: "success",
+    });
+    // Meter billable doc update — fire-and-forget
+    const { meter } = await import("../lib/metering.js");
+    meter.increment(session.accountId, "erp_docs_created").catch(() => {});
+    res.set(responseHeaders());
+    return res.json(apiSuccess(result.data, meta()));
+  } catch (error) {
+    Sentry.captureException(error, { extra: { request_id: requestId } });
+    return res.status(500).json(
+      apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta())
+    );
+  }
+});
+
+// ─── DELETE /erp/doc ────────────────────────────────────────────────────────────
+
+router.delete("/erp/doc", requireAuth, async (req: Request, res: Response) => {
+  const start = Date.now();
+  const requestId = getRequestId(req as any);
+  const meta = () => apiMeta({ request_id: requestId });
+  const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
+
+  try {
+    const session = (req as any).session;
+    const ctx = auditContext(req as any);
+
+    // CSRF must be validated before any business logic
+    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
+    const csrfHeader = req.headers["x-csrf-token"] as string ?? req.headers["X-CSRF-Token"] as string;
+    if (!validateCsrf(csrfHeader, csrfCookie)) {
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "erp.doc.delete.csrf_failed",
+        ipAddress: ctx.ipAddress,
+        userAgent: ctx.userAgent,
+        severity: "warn",
+        outcome: "failure",
+      });
+      reportSecurityEvent({
+        type: "csrf_attack",
+        userId: session.userId,
+        accountId: session.accountId,
+        ipAddress: ctx.ipAddress,
+        details: "CSRF validation failed on erp.doc.delete",
+      });
+      res.set(responseHeaders());
+      return res.status(403).json(
+        apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta())
+      );
+    }
+
+    if (!session.erpnextSid) {
+      res.set(responseHeaders());
+      return res.status(401).json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
+    }
+
+    const rateLimitDelete = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/erp/doc");
+    if (!rateLimitDelete.allowed) {
+      res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimitDelete) });
+      return res.status(429).json(
+        apiError("RATE_LIMIT", "Too many requests. Try again in a minute.", undefined, meta())
+      );
+    }
+
+    const doctype = req.query.doctype as string | undefined;
+    const name = req.query.name as string | undefined;
+    if (!doctype || !name) {
+      res.set(responseHeaders());
+      return res.status(400).json(
+        apiError("BAD_REQUEST", "doctype and name required", undefined, meta())
+      );
+    }
+
+    const ALLOWED_DOCTYPES_DELETE = new Set([
+      "Sales Invoice", "Sales Order", "Purchase Invoice", "Purchase Order",
+      "Quotation", "Customer", "Supplier", "Item", "Employee",
+      "Journal Entry", "Payment Entry", "Stock Entry", "Expense Claim",
+      "Leave Application", "Salary Slip", "BOM",
+    ]);
+    if (!ALLOWED_DOCTYPES_DELETE.has(doctype)) {
+      res.set(responseHeaders());
+      return res.status(400).json(
+        apiError("BAD_REQUEST", "Invalid or unsupported document type", undefined, meta())
+      );
+    }
+
+    const result = await deleteDoc(doctype, name, session.erpnextSid as string, session.accountId);
+    if (!result.ok) {
+      res.set(responseHeaders());
+      return res.status(502).json(
+        apiError("ERP_ERROR", result.error, undefined, meta())
+      );
+    }
+    void logAudit({
+      accountId: session.accountId,
+      userId: session.userId,
+      action: "erp.doc.delete",
+      resource: doctype,
+      resourceId: name,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      severity: "info",
+      outcome: "success",
+    });
     res.set(responseHeaders());
     return res.json(apiSuccess(result.data, meta()));
   } catch (error) {

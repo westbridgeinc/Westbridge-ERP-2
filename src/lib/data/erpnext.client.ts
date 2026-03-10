@@ -187,3 +187,17 @@ export async function erpUpdate(
     accountId
   );
 }
+
+export async function erpDelete(
+  doctype: string,
+  name: string,
+  sessionId: string,
+  accountId?: string
+): Promise<Result<unknown, string>> {
+  return fetchErp(
+    `/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`,
+    sessionId,
+    { method: "DELETE" },
+    accountId
+  );
+}
