@@ -1,0 +1,9 @@
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include my_white_label *.css
+recursive-include my_white_label *.html
+recursive-include my_white_label *.png
+recursive-include my_white_label *.ico
+recursive-include my_white_label *.svg

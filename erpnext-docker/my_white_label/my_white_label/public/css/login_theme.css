@@ -1,0 +1,56 @@
+/**
+ * Login screen theme overrides (my_white_label).
+ * Adjust these variables to match your brand.
+ */
+:root {
+  /* Primary brand color (buttons, links) */
+  --primary: #1a73e8;
+  --primary-dark: #1557b0;
+  /* Login card and background */
+  --login-bg: #f0f4f8;
+  --login-card-bg: #ffffff;
+  --login-card-border: #e2e8f0;
+  /* Text */
+  --login-heading-color: #1e293b;
+  --login-text-color: #475569;
+}
+
+/* Login page container */
+.login-content,
+.page-card {
+  background: var(--login-card-bg) !important;
+  border: 1px solid var(--login-card-border) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Page background */
+.page-login,
+body[data-route="Login"] {
+  background: var(--login-bg) !important;
+}
+
+/* Headings on login */
+.login-content .page-card-head,
+.login-content h2,
+.login-content .form-label {
+  color: var(--login-heading-color) !important;
+}
+
+/* Primary button */
+.btn-primary,
+.login-content .btn-primary {
+  background-color: var(--primary) !important;
+  border-color: var(--primary) !important;
+}
+.btn-primary:hover,
+.login-content .btn-primary:hover {
+  background-color: var(--primary-dark) !important;
+  border-color: var(--primary-dark) !important;
+}
+
+/* Links */
+.login-content a,
+a.text-muted {
+  color: var(--primary) !important;
+}

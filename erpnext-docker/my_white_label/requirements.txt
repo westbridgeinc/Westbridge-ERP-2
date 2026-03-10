@@ -1,0 +1,1 @@
+# Theme app: no extra Python deps; uses Frappe/ERPNext

@@ -1,0 +1,87 @@
+# ERPNext with custom theme app (my_white_label).
+# One-command launch: docker compose up -d
+# Requires: build the custom image first (see README).
+
+services:
+  mariadb:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+      MYSQL_DATABASE: frappe
+    volumes:
+      - erpnext-mariadb-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+  redis:
+    image: redis:6.2-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  erpnext:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ERPNEXT_VERSION: v16
+    image: erpnext-my-whitelabel:latest
+    restart: unless-stopped
+    environment:
+      SITE_NAME: site1.local
+      ADMIN_PASSWORD: admin
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_ROOT_USER: root
+      DB_ROOT_PASSWORD: admin
+      FRAPPE_REDIS_CACHE: redis://redis:6379/0
+      FRAPPE_REDIS_QUEUE: redis://redis:6379/1
+      FRAPPE_REDIS_SOCKETIO: redis://redis:6379/2
+    volumes:
+      - erpnext-sites:/home/frappe/frappe-bench/sites
+    ports:
+      - "8080:8080"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["bench", "start"]
+
+  erpnext-worker:
+    image: erpnext-my-whitelabel:latest
+    restart: unless-stopped
+    environment:
+      SITE_NAME: site1.local
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_ROOT_USER: root
+      DB_ROOT_PASSWORD: admin
+      FRAPPE_REDIS_CACHE: redis://redis:6379/0
+      FRAPPE_REDIS_QUEUE: redis://redis:6379/1
+      FRAPPE_REDIS_SOCKETIO: redis://redis:6379/2
+    volumes:
+      - erpnext-sites:/home/frappe/frappe-bench/sites
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      erpnext:
+        condition: service_started
+    command: ["bench", "worker", "--queue", "long,default,short"]
+
+volumes:
+  erpnext-mariadb-data:
+  erpnext-sites:
