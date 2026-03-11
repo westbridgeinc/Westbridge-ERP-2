@@ -35,16 +35,21 @@ router.get("/metrics", async (req: Request, res: Response) => {
       return res.status(401).send("Unauthorized");
     }
   } else {
-    // If no token configured, only allow from loopback/private ranges
+    // If no token configured, only allow from loopback/private ranges.
+    // Use req.ip (respects Express trust proxy) with X-Forwarded-For as fallback.
     const forwarded = req.headers["x-forwarded-for"] as string;
-    const ip = forwarded?.split(",")[0]?.trim() ?? "";
+    const ip = forwarded?.split(",")[0]?.trim() ?? req.ip ?? "";
+    // Deny requests with empty/unknown IP — fail closed
+    if (!ip) {
+      return res.status(403).send("Forbidden");
+    }
     const isInternal =
       ip.startsWith("127.") ||
-      ip.startsWith("10.") ||
-      ip.startsWith("172.16.") ||
-      ip.startsWith("192.168.") ||
       ip === "::1" ||
-      ip === "";
+      ip.startsWith("10.") ||
+      // RFC 1918: 172.16.0.0/12 = 172.16.x.x through 172.31.x.x
+      /^172\.(1[6-9]|2[0-9]|3[01])\./.test(ip) ||
+      ip.startsWith("192.168.");
     if (!isInternal) {
       return res.status(403).send("Forbidden");
     }

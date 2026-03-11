@@ -6,6 +6,7 @@
 import { erpLogin } from "../data/auth.client.js";
 import type { Result } from "../utils/result.js";
 import { err } from "../utils/result.js";
+import { logger } from "../logger.js";
 import bcrypt from "bcrypt";
 
 // ---------------------------------------------------------------------------
@@ -22,18 +23,20 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 /**
- * Verify a password against a stored hash.
- * Supports legacy SHA-256 hex hashes (64-char) for migration from older installs.
+ * Verify a password against a stored bcrypt hash.
+ *
+ * Legacy SHA-256 hashes are no longer accepted — all passwords must be
+ * bcrypt-hashed. If a legacy hash is encountered, the function returns false
+ * and logs a warning so the account can be flagged for password reset.
  */
 export async function verifyPassword(
   password: string,
   hash: string,
 ): Promise<boolean> {
-  // Support legacy SHA-256 hashes (64 char hex) during migration
+  // Reject legacy SHA-256 hashes — they are unsalted and insecure
   if (hash.length === 64 && /^[a-f0-9]+$/.test(hash)) {
-    const { createHash } = await import("node:crypto");
-    const sha256 = createHash("sha256").update(password).digest("hex");
-    return sha256 === hash;
+    logger.warn("Legacy SHA-256 password hash encountered — rejecting login. User must reset password.");
+    return false;
   }
   return bcrypt.compare(password, hash);
 }

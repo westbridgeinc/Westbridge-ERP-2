@@ -12,6 +12,7 @@ import { buildSystemPrompt, type AiModule } from "../lib/ai/context.js";
 import { checkAiLimit, recordAiUsage, getAiUsage } from "../lib/ai/limits.js";
 import { validateSession } from "../lib/services/session.service.js";
 import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
+import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { getRedis } from "../lib/redis.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE } from "../lib/constants.js";
@@ -59,6 +60,13 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
   const token = req.cookies?.[COOKIE.SESSION_NAME];
   if (!token) {
     return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  }
+
+  // CSRF validation — AI chat is a state-mutating endpoint
+  const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
+  const csrfHeader = req.headers["x-csrf-token"] as string ?? req.headers["X-CSRF-Token"] as string;
+  if (!validateCsrf(csrfHeader, csrfCookie)) {
+    return res.status(403).json({ error: { code: "FORBIDDEN", message: "Invalid or missing CSRF token" } });
   }
 
   const sessionResult = await validateSession(token, toWebRequest(req));

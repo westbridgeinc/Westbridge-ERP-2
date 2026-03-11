@@ -113,9 +113,12 @@ services:
       REDIS_PORT: "6379"
       ERPNEXT_URL: http://erpnext:8080
       FRONTEND_URL: http://localhost:3000
-      ENCRYPTION_KEY: "${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}"
-      CSRF_SECRET: "${CSRF_SECRET:-dev-csrf-secret-change-in-production}"
-      SESSION_SECRET: "${SESSION_SECRET:-dev-session-secret-change-in-production}"
+      # SECURITY: These secrets MUST be set via .env file or environment variables.
+      # The defaults below are ONLY safe for local development. In production,
+      # generate cryptographically random values (e.g. openssl rand -hex 32).
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set — run: openssl rand -hex 32}"
+      CSRF_SECRET: "${CSRF_SECRET:?CSRF_SECRET must be set — run: openssl rand -hex 32}"
+      SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET must be set — run: openssl rand -hex 32}"
     ports:
       - "4000:4000"
     depends_on:

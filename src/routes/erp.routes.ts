@@ -576,24 +576,14 @@ router.delete("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
 // ─── GET /erp/dashboard ────────────────────────────────────────────────────────
 
-router.get("/erp/dashboard", async (req: Request, res: Response) => {
+router.get("/erp/dashboard", requireAuth, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
   try {
-    // Session validation
-    const token = req.cookies[COOKIE.SESSION_NAME];
-    if (!token) {
-      res.set(responseHeaders());
-      return res.status(401).json(apiError("UNAUTHORIZED", "Not authenticated", undefined, meta()));
-    }
-    const session = await validateSession(token, toWebRequest(req));
-    if (!session.ok) {
-      res.set(responseHeaders());
-      return res.status(401).json(apiError("UNAUTHORIZED", session.error, undefined, meta()));
-    }
+    const session = req.session!;
 
     const rateLimit = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "authenticated", "/api/erp/dashboard");
     if (!rateLimit.allowed) {
@@ -601,7 +591,7 @@ router.get("/erp/dashboard", async (req: Request, res: Response) => {
       return res.status(429).json(apiError("RATE_LIMIT", "Too many requests", undefined, meta()));
     }
 
-    const { accountId, erpnextSid, userId } = session.data;
+    const { accountId, erpnextSid, userId } = session;
 
     // Fetch account's ERPNext company for multi-tenant scoping
     const account = await prisma.account.findUnique({
@@ -619,11 +609,9 @@ router.get("/erp/dashboard", async (req: Request, res: Response) => {
     return res.json(apiSuccess(payload, meta()));
   } catch (err) {
     Sentry.captureException(err);
-    // Never let the dashboard error — return demo data on unexpected failure
-    const requestIdFallback = getRequestId(toWebRequest(req));
     res.set(responseHeaders());
-    return res.json(
-      apiSuccess(DEMO_DATA, apiMeta({ request_id: requestIdFallback }))
+    return res.status(500).json(
+      apiError("SERVER_ERROR", "An unexpected error occurred", undefined, meta())
     );
   }
 });

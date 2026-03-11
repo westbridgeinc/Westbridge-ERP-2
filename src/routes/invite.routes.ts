@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { createInvite } from "../lib/services/invite.service.js";
-import { requireAuth, toWebRequest } from "../middleware/auth.js";
+import { requireAuth, requirePermission, toWebRequest } from "../middleware/auth.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
@@ -26,7 +26,7 @@ const acceptBodySchema = z.object({
 
 // ─── POST /invite ──────────────────────────────────────────────────────────────
 
-router.post("/invite", requireAuth, async (req: Request, res: Response) => {
+router.post("/invite", requireAuth, requirePermission("users:invite"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
