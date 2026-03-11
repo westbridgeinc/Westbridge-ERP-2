@@ -17,8 +17,7 @@ import type { Queue } from "bullmq";
 import { cacheControl } from "../lib/api/cache-headers.js";
 import { prisma } from "../lib/data/prisma.js";
 import { logAudit } from "../lib/services/audit.service.js";
-import { requireAuth, requirePermission, toWebRequest } from "../middleware/auth.js";
-import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
+import { requireAuth, requirePermission, requireCsrf, toWebRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -76,30 +75,12 @@ router.get("/admin/flags", requireAuth, requirePermission("admin:*"), async (req
 // ---------------------------------------------------------------------------
 // PUT /admin/flags — update a feature flag (owner only)
 // ---------------------------------------------------------------------------
-router.put("/admin/flags", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
+router.put("/admin/flags", requireAuth, requirePermission("admin:*"), requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const session = req.session!;
-
-    // CSRF validation
-    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
-    const csrfHeader = (req.headers["x-csrf-token"] as string) ?? (req.headers["X-CSRF-Token"] as string);
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      void logAudit({
-        accountId: session.accountId,
-        userId: session.userId,
-        action: "admin.csrf_failure",
-        resourceId: req.path,
-        ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "unknown",
-        severity: "warn",
-        outcome: "failure",
-      });
-      return res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta()));
-    }
-
     const body = req.body;
     if (!body || Object.keys(body).length === 0) {
       return res.status(400).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("INVALID_JSON", "Invalid request body", undefined, meta()));
@@ -176,30 +157,12 @@ router.get("/admin/jobs", requireAuth, requirePermission("admin:*"), async (req:
 // ---------------------------------------------------------------------------
 // POST /admin/jobs/:id/retry — retry a specific failed BullMQ job
 // ---------------------------------------------------------------------------
-router.post("/admin/jobs/:id/retry", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
+router.post("/admin/jobs/:id/retry", requireAuth, requirePermission("admin:*"), requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const session = req.session!;
-
-    // CSRF validation
-    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
-    const csrfHeader = (req.headers["x-csrf-token"] as string) ?? (req.headers["X-CSRF-Token"] as string);
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      void logAudit({
-        accountId: session.accountId,
-        userId: session.userId,
-        action: "admin.csrf_failure",
-        resourceId: req.path,
-        ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "unknown",
-        severity: "warn",
-        outcome: "failure",
-      });
-      return res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta()));
-    }
-
     const { id } = req.params;
     const queueName = String(req.query.queue ?? "");
 
@@ -228,29 +191,13 @@ router.post("/admin/jobs/:id/retry", requireAuth, requirePermission("admin:*"), 
 // ---------------------------------------------------------------------------
 // POST /admin/webhooks/:id/enable — re-enable a disabled webhook endpoint
 // ---------------------------------------------------------------------------
-router.post("/admin/webhooks/:id/enable", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
+router.post("/admin/webhooks/:id/enable", requireAuth, requirePermission("admin:*"), requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
     const session = req.session!;
-
-    // CSRF validation
-    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
-    const csrfHeader = (req.headers["x-csrf-token"] as string) ?? (req.headers["X-CSRF-Token"] as string);
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      void logAudit({
-        accountId: session.accountId,
-        userId: session.userId,
-        action: "admin.csrf_failure",
-        resourceId: req.path,
-        ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "unknown",
-        severity: "warn",
-        outcome: "failure",
-      });
-      return res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta()));
-    }
 
     const { id } = req.params;
 

@@ -1,9 +1,8 @@
 import { Router, Request, Response } from "express";
 import { createInvite } from "../lib/services/invite.service.js";
-import { requireAuth, requirePermission, toWebRequest } from "../middleware/auth.js";
+import { requireAuth, requireCsrf, requirePermission, toWebRequest } from "../middleware/auth.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
-import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { checkTieredRateLimit, getClientIdentifier, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
 import * as Sentry from "@sentry/node";
 import { z } from "zod";
@@ -26,7 +25,7 @@ const acceptBodySchema = z.object({
 
 // ─── POST /invite ──────────────────────────────────────────────────────────────
 
-router.post("/invite", requireAuth, requirePermission("users:invite"), async (req: Request, res: Response) => {
+router.post("/invite", requireAuth, requireCsrf, requirePermission("users:invite"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
@@ -40,13 +39,6 @@ router.post("/invite", requireAuth, requirePermission("users:invite"), async (re
     if (!rateLimit.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimit) });
       return res.status(429).json(apiError("RATE_LIMIT", "Too many invite attempts.", undefined, meta()));
-    }
-
-    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
-    const csrfHeader = req.headers["x-csrf-token"] as string ?? req.headers["X-CSRF-Token"] as string;
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      res.set(responseHeaders());
-      return res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta()));
     }
 
     const body = req.body;
@@ -146,7 +138,7 @@ router.get("/invite", async (req: Request, res: Response) => {
 
 // ─── POST /invite/accept ───────────────────────────────────────────────────────
 
-router.post("/invite/accept", async (req: Request, res: Response) => {
+router.post("/invite/accept", requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
@@ -158,15 +150,6 @@ router.post("/invite/accept", async (req: Request, res: Response) => {
     if (!rateLimit.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimit) });
       return res.status(429).json(apiError("RATE_LIMIT", "Too many attempts.", undefined, meta()));
-    }
-
-    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
-    const csrfHeader = req.headers["x-csrf-token"] as string ?? req.headers["X-CSRF-Token"] as string;
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      res.set(responseHeaders());
-      return res.status(403).json(
-        apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta())
-      );
     }
 
     const body = req.body;

@@ -7,13 +7,12 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { validateSession } from "../lib/services/session.service.js";
-import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
 import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { COOKIE } from "../lib/constants.js";
-import { toWebRequest } from "../middleware/auth.js";
+import { toWebRequest, requireCsrf } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 
 const router = Router();
@@ -25,18 +24,9 @@ const profileSchema = z.object({
 // ---------------------------------------------------------------------------
 // PATCH /account/profile — update the current user's profile (name)
 // ---------------------------------------------------------------------------
-router.patch("/account/profile", async (req: Request, res: Response) => {
+router.patch("/account/profile", requireCsrf, async (req: Request, res: Response) => {
   const requestId = getRequestId(toWebRequest(req));
   const meta = { request_id: requestId };
-
-  // CSRF validation
-  const headerToken = req.headers["x-csrf-token"] as string;
-  const cookieToken = req.cookies?.[COOKIE.CSRF_NAME] ?? null;
-  if (!validateCsrf(headerToken, cookieToken)) {
-    return res.status(403).json(
-      apiError("CSRF_INVALID", "Invalid or missing CSRF token", undefined, meta)
-    );
-  }
 
   // Session validation
   const token = req.cookies?.[COOKIE.SESSION_NAME];
@@ -213,20 +203,12 @@ router.get("/account/export", async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // DELETE /account/delete — GDPR right-to-deletion (owner only)
 // ---------------------------------------------------------------------------
-router.delete("/account/delete", async (req: Request, res: Response) => {
+router.delete("/account/delete", requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const csrfCookie = req.cookies?.[CSRF_COOKIE_NAME] ?? null;
-    const csrfHeader = (req.headers["x-csrf-token"] as string) ?? null;
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      return res.status(403).set("X-Response-Time", `${Date.now() - start}ms`).json(
-        apiError("FORBIDDEN", "Invalid CSRF token", undefined, meta())
-      );
-    }
-
     const token = req.cookies?.[COOKIE.SESSION_NAME];
     if (!token) {
       return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Not authenticated", undefined, meta()));

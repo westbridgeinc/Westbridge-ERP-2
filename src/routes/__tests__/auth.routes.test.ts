@@ -25,6 +25,7 @@ vi.mock("../../lib/data/prisma.js", () => ({
 
 vi.mock("../../lib/redis.js", () => ({
   getRedis: vi.fn().mockReturnValue(null),
+  getRedisConfig: vi.fn().mockReturnValue({ host: "localhost", port: 6379 }),
 }));
 
 vi.mock("../../lib/services/session.service.js", () => ({
@@ -366,7 +367,7 @@ describe("Auth Routes", () => {
         .set("Cookie", SESSION_COOKIE);
 
       expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe("CSRF_INVALID");
+      expect(res.body.error.code).toBe("FORBIDDEN");
     });
   });
 

@@ -4,14 +4,12 @@ import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { validateErpFilters } from "../lib/validation/erp-filters.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { checkTieredRateLimit, checkErpAccountRateLimit, getClientIdentifier, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
-import { requireAuth, toWebRequest } from "../middleware/auth.js";
+import { requireAuth, requireCsrf, rateLimit, toWebRequest } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../lib/data/prisma.js";
 import { ALLOWED_DOCTYPES_SET } from "../lib/erp-constants.js";
 import { getDoc, createDoc, updateDoc, deleteDoc } from "../lib/services/erp.service.js";
 import { erpDocCreateBodySchema } from "../types/schemas/erp.js";
-import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
-import { reportSecurityEvent } from "../lib/security-monitor.js";
 import { validateSession } from "../lib/services/session.service.js";
 import { COOKIE } from "../lib/constants.js";
 import { buildDashboardData, DEMO_DATA } from "../lib/services/dashboard.service.js";
@@ -221,7 +219,7 @@ router.get("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
 // ─── POST /erp/doc ─────────────────────────────────────────────────────────────
 
-router.post("/erp/doc", requireAuth, async (req: Request, res: Response) => {
+router.post("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
@@ -238,32 +236,6 @@ router.post("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
     const session = req.session!;
     const ctx = auditContext(toWebRequest(req));
-
-    // CSRF must be validated before any business logic (including ERP session check)
-    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
-    const csrfHeader = req.headers["x-csrf-token"] as string ?? req.headers["X-CSRF-Token"] as string;
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      void logAudit({
-        accountId: session.accountId,
-        userId: session.userId,
-        action: "erp.doc.create.csrf_failed",
-        ipAddress: ctx.ipAddress,
-        userAgent: ctx.userAgent,
-        severity: "warn",
-        outcome: "failure",
-      });
-      reportSecurityEvent({
-        type: "csrf_attack",
-        userId: session.userId,
-        accountId: session.accountId,
-        ipAddress: ctx.ipAddress,
-        details: "CSRF validation failed on erp.doc.create",
-      });
-      res.set(responseHeaders());
-      return res.status(403).json(
-        apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta())
-      );
-    }
 
     if (!session.erpnextSid) {
       res.set(responseHeaders());
@@ -344,7 +316,7 @@ router.post("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
 // ─── PUT /erp/doc ──────────────────────────────────────────────────────────────
 
-router.put("/erp/doc", requireAuth, async (req: Request, res: Response) => {
+router.put("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
@@ -361,32 +333,6 @@ router.put("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
     const session = req.session!;
     const ctx = auditContext(toWebRequest(req));
-
-    // CSRF must be validated before any business logic
-    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
-    const csrfHeader = req.headers["x-csrf-token"] as string ?? req.headers["X-CSRF-Token"] as string;
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      void logAudit({
-        accountId: session.accountId,
-        userId: session.userId,
-        action: "erp.doc.update.csrf_failed",
-        ipAddress: ctx.ipAddress,
-        userAgent: ctx.userAgent,
-        severity: "warn",
-        outcome: "failure",
-      });
-      reportSecurityEvent({
-        type: "csrf_attack",
-        userId: session.userId,
-        accountId: session.accountId,
-        ipAddress: ctx.ipAddress,
-        details: "CSRF validation failed on erp.doc.update",
-      });
-      res.set(responseHeaders());
-      return res.status(403).json(
-        apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta())
-      );
-    }
 
     if (!session.erpnextSid) {
       res.set(responseHeaders());
@@ -475,7 +421,7 @@ router.put("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
 // ─── DELETE /erp/doc ────────────────────────────────────────────────────────────
 
-router.delete("/erp/doc", requireAuth, async (req: Request, res: Response) => {
+router.delete("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
@@ -484,32 +430,6 @@ router.delete("/erp/doc", requireAuth, async (req: Request, res: Response) => {
   try {
     const session = req.session!;
     const ctx = auditContext(toWebRequest(req));
-
-    // CSRF must be validated before any business logic
-    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
-    const csrfHeader = req.headers["x-csrf-token"] as string ?? req.headers["X-CSRF-Token"] as string;
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      void logAudit({
-        accountId: session.accountId,
-        userId: session.userId,
-        action: "erp.doc.delete.csrf_failed",
-        ipAddress: ctx.ipAddress,
-        userAgent: ctx.userAgent,
-        severity: "warn",
-        outcome: "failure",
-      });
-      reportSecurityEvent({
-        type: "csrf_attack",
-        userId: session.userId,
-        accountId: session.accountId,
-        ipAddress: ctx.ipAddress,
-        details: "CSRF validation failed on erp.doc.delete",
-      });
-      res.set(responseHeaders());
-      return res.status(403).json(
-        apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta())
-      );
-    }
 
     if (!session.erpnextSid) {
       res.set(responseHeaders());

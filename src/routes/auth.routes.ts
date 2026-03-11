@@ -33,11 +33,10 @@ import {
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { loginBodySchema } from "../types/schemas/auth.js";
-import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE, COOKIE_SAME_SITE } from "../lib/constants.js";
 import { reportSecurityEvent } from "../lib/security-monitor.js";
-import { toWebRequest } from "../middleware/auth.js";
+import { toWebRequest, requireCsrf } from "../middleware/auth.js";
 import { requestPasswordReset } from "../lib/services/password-reset.service.js";
 import { applyPasswordReset } from "../lib/services/password-reset.service.js";
 import { validatePassword } from "../lib/password-policy.js";
@@ -55,7 +54,7 @@ const MAX_BODY_BYTES = 1_048_576;
 const router = Router();
 
 // ========================== POST /login ====================================
-router.post("/login", async (req: Request, res: Response) => {
+router.post("/login", requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
@@ -108,26 +107,6 @@ router.post("/login", async (req: Request, res: Response) => {
           apiError(
             "RATE_LIMIT",
             "Too many attempts. Try again in a minute.",
-            undefined,
-            meta(),
-          ),
-        );
-    }
-
-    // --- CSRF validation ---
-    const csrfCookie = req.cookies?.[CSRF_COOKIE_NAME] ?? null;
-    const csrfHeader =
-      (req.headers["x-csrf-token"] as string) ??
-      (req.headers["X-CSRF-Token"] as string) ??
-      null;
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      return res
-        .status(403)
-        .set(responseTime())
-        .json(
-          apiError(
-            "FORBIDDEN",
-            "Invalid or missing CSRF token.",
             undefined,
             meta(),
           ),
@@ -425,31 +404,10 @@ router.post("/login", async (req: Request, res: Response) => {
 });
 
 // ========================== POST /logout ===================================
-router.post("/logout", async (req: Request, res: Response) => {
+router.post("/logout", requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const responseTime = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
-
-  // --- CSRF validation ---
-  const headerToken =
-    (req.headers["x-csrf-token"] as string) ??
-    (req.headers["X-CSRF-Token"] as string) ??
-    null;
-  const cookieToken = req.cookies?.[COOKIE.CSRF_NAME] ?? null;
-  const csrfOk = validateCsrf(headerToken, cookieToken);
-  if (!csrfOk) {
-    return res
-      .status(403)
-      .set(responseTime())
-      .json(
-        apiError(
-          "CSRF_INVALID",
-          "Invalid or missing CSRF token",
-          undefined,
-          { request_id: requestId },
-        ),
-      );
-  }
 
   const ctx = auditContext(toWebRequest(req));
   const sid = req.cookies?.[COOKIE.SESSION_NAME] ?? undefined;
@@ -558,7 +516,7 @@ router.get("/validate", async (req: Request, res: Response) => {
 });
 
 // ========================== POST /forgot-password ==========================
-router.post("/forgot-password", async (req: Request, res: Response) => {
+router.post("/forgot-password", requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
@@ -578,26 +536,6 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
         .status(200)
         .set(responseTime())
         .json(apiSuccess({ sent: true }, meta()));
-    }
-
-    // --- CSRF validation ---
-    const csrfCookie = req.cookies?.[CSRF_COOKIE_NAME] ?? null;
-    const csrfHeader =
-      (req.headers["x-csrf-token"] as string) ??
-      (req.headers["X-CSRF-Token"] as string) ??
-      null;
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      return res
-        .status(403)
-        .set(responseTime())
-        .json(
-          apiError(
-            "FORBIDDEN",
-            "Invalid or missing CSRF token.",
-            undefined,
-            meta(),
-          ),
-        );
     }
 
     // --- Body validation ---
@@ -655,7 +593,7 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
 });
 
 // ========================== POST /reset-password ===========================
-router.post("/reset-password", async (req: Request, res: Response) => {
+router.post("/reset-password", requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
@@ -680,26 +618,6 @@ router.post("/reset-password", async (req: Request, res: Response) => {
           apiError(
             "RATE_LIMIT",
             "Too many attempts. Try again later.",
-            undefined,
-            meta(),
-          ),
-        );
-    }
-
-    // --- CSRF validation ---
-    const csrfCookie = req.cookies?.[CSRF_COOKIE_NAME] ?? null;
-    const csrfHeader =
-      (req.headers["x-csrf-token"] as string) ??
-      (req.headers["X-CSRF-Token"] as string) ??
-      null;
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      return res
-        .status(403)
-        .set(responseTime())
-        .json(
-          apiError(
-            "FORBIDDEN",
-            "Invalid or missing CSRF token.",
             undefined,
             meta(),
           ),
@@ -782,33 +700,13 @@ router.post("/reset-password", async (req: Request, res: Response) => {
 });
 
 // ========================== POST /change-password ==========================
-router.post("/change-password", async (req: Request, res: Response) => {
+router.post("/change-password", requireCsrf, async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseTime = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
   try {
-    // --- CSRF validation ---
-    const csrfCookie = req.cookies?.[CSRF_COOKIE_NAME] ?? null;
-    const csrfHeader =
-      (req.headers["x-csrf-token"] as string) ??
-      (req.headers["X-CSRF-Token"] as string) ??
-      null;
-    if (!validateCsrf(csrfHeader, csrfCookie)) {
-      return res
-        .status(403)
-        .set(responseTime())
-        .json(
-          apiError(
-            "FORBIDDEN",
-            "Invalid CSRF token",
-            undefined,
-            meta(),
-          ),
-        );
-    }
-
     // --- Session validation ---
     const token = req.cookies?.[COOKIE.SESSION_NAME] ?? undefined;
     if (!token) {

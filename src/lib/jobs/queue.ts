@@ -6,6 +6,7 @@
  * Next.js API routes only ADD jobs to the queue; they never run the work inline.
  */
 import { Queue, type ConnectionOptions } from "bullmq";
+import { getRedisConfig } from "../redis.js";
 
 const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 if (
@@ -16,10 +17,11 @@ if (
   throw new Error("REDIS_PASSWORD is required in production");
 }
 
+const redisConfig = getRedisConfig();
 const connection: ConnectionOptions = {
-  host: process.env.REDIS_HOST ?? "localhost",
-  port: Number(process.env.REDIS_PORT ?? 6380),
-  password: process.env.REDIS_PASSWORD,
+  host: redisConfig.host,
+  port: redisConfig.port,
+  password: redisConfig.password ?? process.env.REDIS_PASSWORD,
 };
 
 // TODO: BullMQ has a Dashboard package (@bull-board/api) we should wire up

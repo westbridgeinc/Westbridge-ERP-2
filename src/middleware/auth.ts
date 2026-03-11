@@ -7,6 +7,14 @@ import { validateSession } from "../lib/services/session.service.js";
 import { COOKIE, COOKIE_SAME_SITE } from "../lib/constants.js";
 import { hasPermission, type Permission } from "../lib/rbac.js";
 import { logAudit } from "../lib/services/audit.service.js";
+import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
+import { apiError } from "../types/api.js";
+import {
+  checkTieredRateLimit,
+  getClientIdentifier,
+  rateLimitHeaders,
+  type RateLimitTier,
+} from "../lib/api/rate-limit-tiers.js";
 
 export interface SessionData {
   userId: string;
@@ -117,4 +125,36 @@ export function toWebRequest(req: Request): globalThis.Request {
     method: req.method,
     headers,
   });
+}
+
+/**
+ * Middleware that validates the CSRF token from the request header against the cookie.
+ * Returns 403 if the token is missing or invalid.
+ */
+export function requireCsrf(req: Request, res: Response, next: NextFunction): void {
+  const headerToken = (req.headers["x-csrf-token"] as string) ?? null;
+  const cookieToken = req.cookies?.[CSRF_COOKIE_NAME] ?? null;
+  if (!validateCsrf(headerToken, cookieToken)) {
+    res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token"));
+    return;
+  }
+  next();
+}
+
+/**
+ * Middleware factory: checks the tiered rate limit for the given tier and endpoint.
+ * Returns 429 if the rate limit is exceeded.
+ */
+export function rateLimit(tier: RateLimitTier, endpoint: string) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const identifier = req.session?.userId ?? req.session?.accountId ?? getClientIdentifier(toWebRequest(req));
+    const result = await checkTieredRateLimit(identifier, tier, endpoint);
+    if (!result.allowed) {
+      res.status(429).set(rateLimitHeaders(result)).json(
+        apiError("RATE_LIMITED", "Too many requests. Please try again shortly.")
+      );
+      return;
+    }
+    next();
+  };
 }

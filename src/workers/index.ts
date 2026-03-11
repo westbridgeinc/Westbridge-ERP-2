@@ -13,6 +13,7 @@ import { DATA_RETENTION } from "../lib/data-retention.js";
 import { erpGet } from "../lib/data/erpnext.client.js";
 import { decrypt } from "../lib/encryption.js";
 import { publish } from "../lib/realtime.js";
+import { getRedisConfig } from "../lib/redis.js";
 import type {
   EmailJobData,
   CleanupJobData,
@@ -21,11 +22,7 @@ import type {
   ReportJobData,
 } from "../lib/jobs/queue.js";
 
-const connection = {
-  host: process.env.REDIS_HOST ?? "localhost",
-  port: Number(process.env.REDIS_PORT ?? 6380),
-  password: process.env.REDIS_PASSWORD,
-};
+const connection = getRedisConfig();
 
 // ─── Email Worker ──────────────────────────────────────────────────────────────
 

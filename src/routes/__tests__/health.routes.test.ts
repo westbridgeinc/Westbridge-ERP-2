@@ -15,6 +15,7 @@ vi.mock("../../lib/redis.js", () => ({
   getRedis: vi.fn().mockReturnValue({
     ping: vi.fn().mockResolvedValue("PONG"),
   }),
+  getRedisConfig: vi.fn().mockReturnValue({ host: "localhost", port: 6379 }),
 }));
 
 vi.mock("../../lib/services/session.service.js", () => ({
