@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.*
+.git
+.github
+*.md
+coverage
+.DS_Store
+*.log
+src/**/*.test.ts
+vitest.config.ts

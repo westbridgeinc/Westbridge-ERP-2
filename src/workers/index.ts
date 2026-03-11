@@ -170,12 +170,155 @@ function createErpSyncWorker(): Worker {
 
 // ─── Reports Worker ────────────────────────────────────────────────────────────
 
+/**
+ * Supported report types and their data sources.
+ * Each handler fetches data, aggregates, and returns the report payload.
+ * The worker stores the result in the audit log for retrieval.
+ */
+const REPORT_HANDLERS: Record<
+  string,
+  (accountId: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>
+> = {
+  async revenue_summary(accountId, params) {
+    const period = (params.period as string) ?? new Date().toISOString().slice(0, 7);
+    const startDate = new Date(`${period}-01`);
+    const endDate = new Date(startDate);
+    endDate.setMonth(endDate.getMonth() + 1);
+
+    logger.info("Generating revenue summary", { accountId, period });
+
+    const invoiceActivity = await prisma.auditLog.count({
+      where: {
+        accountId,
+        action: "erp.doc.create",
+        resource: "Sales Invoice",
+        timestamp: { gte: startDate, lt: endDate },
+      },
+    });
+
+    return {
+      reportType: "revenue_summary",
+      period,
+      invoicesCreated: invoiceActivity,
+      generatedAt: new Date().toISOString(),
+    };
+  },
+
+  async audit_export(accountId, params) {
+    const days = (params.days as number) ?? 30;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    logger.info("Generating audit export", { accountId, days });
+
+    const logs = await prisma.auditLog.findMany({
+      where: { accountId, timestamp: { gte: cutoff } },
+      orderBy: { timestamp: "desc" },
+      take: 10_000,
+      select: {
+        id: true,
+        action: true,
+        resource: true,
+        resourceId: true,
+        userId: true,
+        ipAddress: true,
+        severity: true,
+        outcome: true,
+        timestamp: true,
+      },
+    });
+
+    return {
+      reportType: "audit_export",
+      days,
+      rowCount: logs.length,
+      rows: logs,
+      generatedAt: new Date().toISOString(),
+    };
+  },
+
+  async user_activity(accountId, _params) {
+    logger.info("Generating user activity report", { accountId });
+
+    const users = await prisma.user.findMany({
+      where: { accountId },
+      select: { id: true, name: true, email: true, role: true, status: true, createdAt: true },
+    });
+
+    const activeSessions = await prisma.session.count({
+      where: {
+        user: { accountId },
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    return {
+      reportType: "user_activity",
+      userCount: users.length,
+      activeSessionCount: activeSessions,
+      users: users.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        status: u.status,
+        createdAt: u.createdAt.toISOString(),
+      })),
+      generatedAt: new Date().toISOString(),
+    };
+  },
+};
+
+/** List of supported report types — export for API validation. */
+export const SUPPORTED_REPORT_TYPES = Object.keys(REPORT_HANDLERS);
+
 function createReportsWorker(): Worker {
   return new Worker<ReportJobData>(
     "reports",
     async (job: Job<ReportJobData>) => {
       const { accountId, reportType, params, requestedBy } = job.data;
-      logger.info("Report generation requested", { jobId: job.id, accountId, reportType, requestedBy, params });
+      logger.info("Report generation started", { jobId: job.id, accountId, reportType, requestedBy });
+
+      const handler = REPORT_HANDLERS[reportType];
+      if (!handler) {
+        logger.error("Unknown report type", { jobId: job.id, reportType, supported: SUPPORTED_REPORT_TYPES });
+        throw new Error(`Unknown report type: ${reportType}. Supported: ${SUPPORTED_REPORT_TYPES.join(", ")}`);
+      }
+
+      try {
+        const result = await handler(accountId, params);
+
+        // Store the completed report in the audit log for retrieval by the user
+        await prisma.auditLog.create({
+          data: {
+            accountId,
+            userId: requestedBy,
+            action: "report.generated",
+            resource: reportType,
+            resourceId: job.id ?? crypto.randomUUID(),
+            ipAddress: "worker",
+            userAgent: "bullmq-reports-worker",
+            metadata: JSON.parse(JSON.stringify(result)),
+            severity: "info",
+            outcome: "success",
+          },
+        });
+
+        logger.info("Report generation completed", {
+          jobId: job.id,
+          reportType,
+          accountId,
+          rowCount: (result as Record<string, unknown>).rowCount ?? (result as Record<string, unknown>).userCount ?? 0,
+        });
+
+        return result;
+      } catch (err) {
+        logger.error("Report generation failed", {
+          jobId: job.id,
+          reportType,
+          accountId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
     },
     { connection },
   );
