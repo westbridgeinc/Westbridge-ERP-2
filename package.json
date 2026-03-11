@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:load:smoke": "k6 run load-tests/smoke.js",
     "test:load": "k6 run load-tests/average-load.js",
     "test:load:stress": "k6 run load-tests/stress.js",
@@ -23,8 +24,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
-    "@asteasolutions/zod-to-openapi": "^8.4.3",
+    "@asteasolutions/zod-to-openapi": "^7.3.0",
+    "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/auto-instrumentations-node": "^0.71.0",
+    "@opentelemetry/core": "^2.0.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
     "@opentelemetry/sdk-node": "^0.213.0",
     "@prisma/client": "^6.4.1",
@@ -64,6 +67,10 @@
     "supertest": "^7.2.2",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
+    "@vitest/coverage-v8": "^3.2.4",
     "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "@opentelemetry/core": "^2.0.0"
   }
 }

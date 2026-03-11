@@ -17,7 +17,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: rm -f package-lock.json && npm install --legacy-peer-deps
+          cache: "npm"
+      - run: npm ci
       - run: npm audit --audit-level=high
 
   codeql:
@@ -35,7 +36,6 @@ jobs:
           queries: security-extended
       - uses: github/codeql-action/autobuild@v3
       - uses: github/codeql-action/analyze@v3
-        continue-on-error: true
 
   secrets-scan:
     name: Secret Scanning
@@ -51,4 +51,3 @@ jobs:
           base: ${{ github.event.repository.default_branch }}
           head: HEAD
           extra_args: --only-verified
-        continue-on-error: true

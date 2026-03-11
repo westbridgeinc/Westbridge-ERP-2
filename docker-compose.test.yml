@@ -1,0 +1,32 @@
+# Test-only services for integration tests.
+# Usage:
+#   docker compose -f docker-compose.test.yml up -d
+#   DATABASE_URL=postgresql://postgres:postgres@localhost:5433/westbridge_test npm run test:integration
+#   docker compose -f docker-compose.test.yml down -v
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: westbridge_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
