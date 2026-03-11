@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
+      - run: rm -f package-lock.json && npm install
       - run: npm audit --audit-level=high
 
   codeql:
