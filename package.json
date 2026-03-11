@@ -15,7 +15,11 @@
     "lint": "eslint src/ --ext .ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:load:smoke": "k6 run load-tests/smoke.js",
+    "test:load": "k6 run load-tests/average-load.js",
+    "test:load:stress": "k6 run load-tests/stress.js",
+    "test:load:spike": "k6 run load-tests/spike.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
