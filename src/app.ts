@@ -32,6 +32,7 @@ import analyticsRoutes from "./routes/analytics.routes.js";
 import healthRoutes from "./routes/health.routes.js";
 import eventsRoutes from "./routes/events.routes.js";
 import webhooksRoutes from "./routes/webhooks.routes.js";
+import reportsRoutes from "./routes/reports.routes.js";
 import miscRoutes from "./routes/misc.routes.js";
 import cspRoutes from "./routes/csp.routes.js";
 
@@ -85,6 +86,7 @@ export function createApp(): express.Application {
   app.use("/api", healthRoutes);
   app.use("/api", eventsRoutes);
   app.use("/api", webhooksRoutes);
+  app.use("/api", reportsRoutes);
   app.use("/api", miscRoutes);
   app.use("/api", cspRoutes);
 

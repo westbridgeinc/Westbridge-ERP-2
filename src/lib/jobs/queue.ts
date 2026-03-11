@@ -50,7 +50,14 @@ export const erpSyncQueue = new Queue("erp-sync", {
 });
 
 /** Async report generation for large datasets. */
-export const reportsQueue = new Queue("reports", DEFAULT_OPTIONS);
+export const reportsQueue = new Queue("reports", {
+  ...DEFAULT_OPTIONS,
+  defaultJobOptions: {
+    ...DEFAULT_OPTIONS.defaultJobOptions,
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5000 },
+  },
+});
 
 /** Scheduled cleanup tasks (sessions, audit logs). */
 export const cleanupQueue = new Queue("cleanup", DEFAULT_OPTIONS);
@@ -119,6 +126,21 @@ export async function enqueueEmail(data: EmailJobData): Promise<void> {
     attempts: 3,
     backoff: { type: "exponential", delay: 2000 },
   });
+}
+
+/** Add a report generation job to the queue. Returns the job ID for status polling. */
+export async function enqueueReport(data: ReportJobData): Promise<string> {
+  const MAX_REPORT_QUEUE_DEPTH = 500;
+  const waiting = await reportsQueue.getWaitingCount();
+  if (waiting > MAX_REPORT_QUEUE_DEPTH) {
+    const { logger } = await import("../logger.js");
+    logger.error("enqueueReport: queue depth exceeded — rejecting new job", {
+      waiting, limit: MAX_REPORT_QUEUE_DEPTH,
+    });
+    throw new Error("Report service temporarily unavailable — queue capacity reached");
+  }
+  const job = await reportsQueue.add(`report.${data.reportType}`, data);
+  return job.id ?? crypto.randomUUID();
 }
 
 /** Schedule the hourly session cleanup job. */

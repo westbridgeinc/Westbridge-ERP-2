@@ -31,6 +31,7 @@ export type Permission =
   | "billing:read"     | "billing:manage"
   | "api_keys:read"    | "api_keys:write"    | "api_keys:delete"
   | "webhooks:read"    | "webhooks:write"    | "webhooks:delete"
+  | "reports:read"     | "reports:create"
   | "audit_logs:read"
   // Superuser wildcard — granted only to owner. Named "admin:*" for historical
   // reasons but admin role does NOT have this permission; only owner does.
@@ -67,14 +68,14 @@ const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
     permissions: [
       "invoices:delete", "expenses:delete", "orders:delete", "customers:delete",
       "inventory:write", "hr:write", "payroll:read",
-      "billing:read",
+      "billing:read", "reports:read",
       "api_keys:read", "webhooks:read",
     ],
   },
   admin: {
     inherits: ["manager"],
     permissions: [
-      "payroll:write", "accounting:write",
+      "payroll:write", "accounting:write", "reports:create",
       "users:invite", "users:remove", "settings:write",
       "api_keys:write", "api_keys:delete",
       "webhooks:write", "webhooks:delete",

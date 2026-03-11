@@ -12,6 +12,7 @@ import { logger } from "../lib/logger.js";
 import { DATA_RETENTION } from "../lib/data-retention.js";
 import { erpGet } from "../lib/data/erpnext.client.js";
 import { decrypt } from "../lib/encryption.js";
+import { publish } from "../lib/realtime.js";
 import type {
   EmailJobData,
   CleanupJobData,
@@ -300,6 +301,13 @@ function createReportsWorker(): Worker {
             severity: "info",
             outcome: "success",
           },
+        });
+
+        // Notify connected clients that their report is ready
+        void publish(accountId, {
+          type: "report.ready",
+          payload: { jobId: job.id, reportType, requestedBy },
+          timestamp: new Date().toISOString(),
         });
 
         logger.info("Report generation completed", {
