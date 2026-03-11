@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
+      - run: npm ci --legacy-peer-deps
       - run: npx prisma generate
       - run: npx tsc --noEmit
 
@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
+      - run: npm ci --legacy-peer-deps
       - run: npx prisma generate
       - run: npm test -- --reporter=verbose
       - uses: actions/upload-artifact@v4
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
+      - run: npm ci --legacy-peer-deps
       - run: npx prisma generate
       - run: npm run build
 
@@ -76,7 +76,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm ci
+      - run: npm ci --legacy-peer-deps
       - run: npx prisma generate
       - run: npx prisma db push --accept-data-loss
       - run: npx vitest run src/__tests__/integration/ --reporter=verbose
