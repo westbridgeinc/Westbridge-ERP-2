@@ -195,7 +195,7 @@ router.get("/reports/:jobId", requireAuth, requirePermission("reports:read"), as
 
   try {
     const session = req.session!;
-    const { jobId } = req.params;
+    const jobId = req.params.jobId as string;
 
     // First check BullMQ for active/waiting jobs
     const job = await reportsQueue.getJob(jobId);

@@ -143,8 +143,8 @@ router.get("/account/export", async (req: Request, res: Response) => {
       prisma.subscription.findMany({
         where: { accountId: session.accountId },
         select: {
-          id: true, plan: true, status: true, startDate: true,
-          endDate: true, createdAt: true,
+          id: true, planId: true, status: true, currentPeriodStart: true,
+          currentPeriodEnd: true, createdAt: true,
         },
       }),
       prisma.apiKey.findMany({
@@ -164,7 +164,7 @@ router.get("/account/export", async (req: Request, res: Response) => {
       prisma.inviteToken.findMany({
         where: { accountId: session.accountId },
         select: {
-          id: true, email: true, role: true, status: true,
+          id: true, email: true, role: true, usedAt: true,
           createdAt: true, expiresAt: true,
         },
       }),
