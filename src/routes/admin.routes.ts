@@ -8,7 +8,7 @@
  * POST /admin/webhooks/:id/enable    — re-enable a disabled webhook endpoint
  */
 import { Router, Request, Response } from "express";
-import { getAllFlags, setFlag } from "../lib/feature-flags.js";
+import { getAllFlags, setFlag, type FeatureFlag } from "../lib/feature-flags.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import * as Sentry from "@sentry/node";
 import { z } from "zod";
@@ -17,7 +17,7 @@ import type { Queue } from "bullmq";
 import { cacheControl } from "../lib/api/cache-headers.js";
 import { prisma } from "../lib/data/prisma.js";
 import { logAudit } from "../lib/services/audit.service.js";
-import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { requireAuth, requirePermission, toWebRequest } from "../middleware/auth.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 
 const router = Router();
@@ -28,7 +28,7 @@ const router = Router();
 const flagRuleSchema = z.object({
   condition: z.enum(["user_id", "account_id", "email_domain", "percentage", "environment"]),
   operator: z.enum(["equals", "contains", "in", "percentage_rollout"]),
-  value: z.unknown(),
+  value: z.unknown().default(null),
   flagValue: z.union([z.boolean(), z.string(), z.number()]),
 });
 
@@ -61,7 +61,7 @@ const QUEUES_MAP: Record<string, Queue> = {
 // ---------------------------------------------------------------------------
 router.get("/admin/flags", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
@@ -78,11 +78,11 @@ router.get("/admin/flags", requireAuth, requirePermission("admin:*"), async (req
 // ---------------------------------------------------------------------------
 router.put("/admin/flags", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const session = (req as any).session;
+    const session = req.session!;
 
     // CSRF validation
     const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
@@ -110,7 +110,7 @@ router.put("/admin/flags", requireAuth, requirePermission("admin:*"), async (req
       return res.status(400).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("VALIDATION_ERROR", parsed.error.flatten().formErrors[0] ?? "Invalid flag", undefined, meta()));
     }
 
-    await setFlag(parsed.data as any);
+    await setFlag(parsed.data as FeatureFlag);
 
     return res.set("X-Response-Time", `${Date.now() - start}ms`).json(apiSuccess({ updated: true }, meta()));
   } catch (error) {
@@ -124,7 +124,7 @@ router.put("/admin/flags", requireAuth, requirePermission("admin:*"), async (req
 // ---------------------------------------------------------------------------
 router.get("/admin/jobs", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
@@ -178,11 +178,11 @@ router.get("/admin/jobs", requireAuth, requirePermission("admin:*"), async (req:
 // ---------------------------------------------------------------------------
 router.post("/admin/jobs/:id/retry", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const session = (req as any).session;
+    const session = req.session!;
 
     // CSRF validation
     const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
@@ -230,11 +230,11 @@ router.post("/admin/jobs/:id/retry", requireAuth, requirePermission("admin:*"), 
 // ---------------------------------------------------------------------------
 router.post("/admin/webhooks/:id/enable", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const session = (req as any).session;
+    const session = req.session!;
 
     // CSRF validation
     const csrfCookie = req.cookies[CSRF_COOKIE_NAME];

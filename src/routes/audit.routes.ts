@@ -5,11 +5,11 @@
  * GET /audit/export  — streamed audit log export (CSV or JSON)
  */
 import { Router, Request, Response } from "express";
-import { logAudit, auditContext } from "../lib/services/audit.service.js";
+import { logAudit, auditContext, CSV_HEADER, rowToCsv } from "../lib/services/audit.service.js";
 import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
-import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { requireAuth, requirePermission, toWebRequest } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 
 const router = Router();
@@ -17,50 +17,18 @@ const router = Router();
 const MAX_PER_PAGE = 100;
 const BATCH_SIZE = 500; // rows per DB query to keep memory footprint low
 
-// CSV header row matching the spec
-const CSV_HEADER = "timestamp,action,userId,ipAddress,severity,outcome,resource,resourceId,metadata\n";
-
-function rowToCsv(row: {
-  timestamp: Date;
-  action: string;
-  userId: string | null;
-  ipAddress: string | null;
-  severity: string;
-  outcome: string;
-  resource: string | null;
-  resourceId: string | null;
-  metadata: unknown;
-}): string {
-  const esc = (v: unknown): string => {
-    const s = v == null ? "" : String(v);
-    // Wrap in double quotes and escape existing quotes per RFC 4180
-    return `"${s.replace(/"/g, '""')}"`;
-  };
-  return [
-    esc(row.timestamp.toISOString()),
-    esc(row.action),
-    esc(row.userId),
-    esc(row.ipAddress),
-    esc(row.severity),
-    esc(row.outcome),
-    esc(row.resource),
-    esc(row.resourceId),
-    esc(row.metadata ? JSON.stringify(row.metadata) : ""),
-  ].join(",") + "\n";
-}
-
 // ---------------------------------------------------------------------------
 // GET /audit — paginated audit logs for the current account
 // ---------------------------------------------------------------------------
 router.get("/audit", requireAuth, requirePermission("audit_logs:read"), async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = (pagination?: { page: number; per_page: number; total: number; total_pages: number }) =>
     apiMeta({ request_id: requestId, ...(pagination && { pagination }) });
-  const ctx = auditContext(req as any);
+  const ctx = auditContext(toWebRequest(req));
 
   try {
-    const session = (req as any).session;
+    const session = req.session!;
 
     const page = Math.max(1, parseInt(req.query.page as string ?? "1", 10) || 1);
     const perPage = Math.min(MAX_PER_PAGE, Math.max(1, parseInt(req.query.per_page as string ?? "20", 10) || 20));
@@ -124,8 +92,8 @@ router.get("/audit", requireAuth, requirePermission("audit_logs:read"), async (r
 // ---------------------------------------------------------------------------
 router.get("/audit/export", requireAuth, requirePermission("audit_logs:read"), async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
-  const ctx = auditContext(req as any);
+  const requestId = getRequestId(toWebRequest(req));
+  const ctx = auditContext(toWebRequest(req));
 
   // Inline error response helper
   const errorResponse = (code: string, message: string, status: number) =>
@@ -134,7 +102,7 @@ router.get("/audit/export", requireAuth, requirePermission("audit_logs:read"), a
     );
 
   try {
-    const session = (req as any).session;
+    const session = req.session!;
     if (!session || (session.role !== "owner" && session.role !== "admin")) {
       return res.status(403).json(apiError("FORBIDDEN", "Admin access required", undefined, apiMeta({ request_id: requestId })));
     }

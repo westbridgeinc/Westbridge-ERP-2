@@ -15,6 +15,7 @@ import { getRedis } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
 import { matchesCidr } from "../lib/ip-utils.js";
 import type { CidrRange } from "../lib/ip-utils.js";
+import { toWebRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -36,7 +37,7 @@ function is2CheckoutIP(ip: string): boolean {
 // ---------------------------------------------------------------------------
 router.post("/webhooks/2checkout", async (req: Request, res: Response) => {
   const start = Date.now();
-  const ctx = auditContext(req as any);
+  const ctx = auditContext(toWebRequest(req));
   const clientIP = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? (req.headers["x-real-ip"] as string) ?? "";
   if (clientIP && !is2CheckoutIP(clientIP)) {
     if (process.env.NODE_ENV === "production") {
@@ -44,7 +45,7 @@ router.post("/webhooks/2checkout", async (req: Request, res: Response) => {
     }
     logger.warn("2Checkout webhook from non-allowlisted IP (non-production)", { ip: clientIP });
   }
-  const id = getClientIdentifier(req as any);
+  const id = getClientIdentifier(toWebRequest(req));
   const rateLimit = await checkTieredRateLimit(id, "anonymous", "/api/webhooks/2checkout");
   if (!rateLimit.allowed) {
     const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;

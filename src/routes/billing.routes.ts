@@ -6,7 +6,7 @@
 import { Router, Request, Response } from "express";
 import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiMeta, getRequestId } from "../types/api.js";
-import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { requireAuth, requirePermission, toWebRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -15,10 +15,10 @@ const router = Router();
 // ---------------------------------------------------------------------------
 router.get("/billing/history", requireAuth, requirePermission("billing:read"), async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
-  const session = (req as any).session;
+  const session = req.session!;
 
   const account = await prisma.account.findUnique({
     where: { id: session.accountId },

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { createInvite } from "../lib/services/invite.service.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, toWebRequest } from "../middleware/auth.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
@@ -28,15 +28,15 @@ const acceptBodySchema = z.object({
 
 router.post("/invite", requireAuth, async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
-  const ctx = auditContext(req as any);
+  const ctx = auditContext(toWebRequest(req));
 
   try {
-    const session = (req as any).session;
+    const session = req.session!;
 
-    const rateLimit = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/invite");
+    const rateLimit = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "authenticated", "/api/invite");
     if (!rateLimit.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimit) });
       return res.status(429).json(apiError("RATE_LIMIT", "Too many invite attempts.", undefined, meta()));
@@ -107,12 +107,12 @@ router.post("/invite", requireAuth, async (req: Request, res: Response) => {
 
 router.get("/invite", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
   try {
-    const getRateLimit = await checkTieredRateLimit(getClientIdentifier(req as any), "anonymous", "/api/invite:get");
+    const getRateLimit = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "anonymous", "/api/invite:get");
     if (!getRateLimit.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(getRateLimit) });
       return res.status(429).json(
@@ -148,13 +148,13 @@ router.get("/invite", async (req: Request, res: Response) => {
 
 router.post("/invite/accept", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
-  const ctx = auditContext(req as any);
+  const ctx = auditContext(toWebRequest(req));
 
   try {
-    const rateLimit = await checkTieredRateLimit(getClientIdentifier(req as any), "anonymous", "/api/invite/accept");
+    const rateLimit = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "anonymous", "/api/invite/accept");
     if (!rateLimit.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimit) });
       return res.status(429).json(apiError("RATE_LIMIT", "Too many attempts.", undefined, meta()));

@@ -55,7 +55,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    (req as any).session = result.data;
+    req.session = result.data;
     next();
   } catch {
     res.status(500).json({ ok: false, error: { code: "AUTH_ERROR", message: "Authentication check failed" } });
@@ -68,7 +68,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
  */
 export function requirePermission(permission: Permission) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const session = (req as any).session;
+    const session = req.session;
 
     if (!session) {
       res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED", message: "Authentication required" } });

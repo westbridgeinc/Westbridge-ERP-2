@@ -13,6 +13,7 @@ import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { COOKIE } from "../lib/constants.js";
+import { toWebRequest } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 
 const router = Router();
@@ -25,7 +26,7 @@ const profileSchema = z.object({
 // PATCH /account/profile — update the current user's profile (name)
 // ---------------------------------------------------------------------------
 router.patch("/account/profile", async (req: Request, res: Response) => {
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = { request_id: requestId };
 
   // CSRF validation
@@ -42,7 +43,7 @@ router.patch("/account/profile", async (req: Request, res: Response) => {
   if (!token) {
     return res.status(401).json(apiError("UNAUTHORIZED", "Authentication required", undefined, meta));
   }
-  const sessionResult = await validateSession(token, req as any);
+  const sessionResult = await validateSession(token, toWebRequest(req));
   if (!sessionResult.ok) {
     return res.status(401).json(apiError("UNAUTHORIZED", "Authentication required", undefined, meta));
   }
@@ -82,7 +83,7 @@ router.patch("/account/profile", async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.delete("/account/delete", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
@@ -98,7 +99,7 @@ router.delete("/account/delete", async (req: Request, res: Response) => {
     if (!token) {
       return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Not authenticated", undefined, meta()));
     }
-    const sessionResult = await validateSession(token, req as any);
+    const sessionResult = await validateSession(token, toWebRequest(req));
     if (!sessionResult.ok) {
       return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", sessionResult.error, undefined, meta()));
     }
@@ -121,7 +122,7 @@ router.delete("/account/delete", async (req: Request, res: Response) => {
         );
     }
 
-    const ctx = auditContext(req as any);
+    const ctx = auditContext(toWebRequest(req));
 
     await prisma.$transaction(async (tx) => {
       const users = await tx.user.findMany({

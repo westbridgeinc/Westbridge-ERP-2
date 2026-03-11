@@ -7,7 +7,7 @@ import { Router, Request, Response } from "express";
 import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { checkTieredRateLimit, getClientIdentifier, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
-import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { requireAuth, requirePermission, toWebRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -28,12 +28,12 @@ function formatRelative(date: Date): string {
 // ---------------------------------------------------------------------------
 router.get("/team", requireAuth, requirePermission("users:read"), async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
-  const session = (req as any).session;
+  const session = req.session!;
 
-  const rateLimit = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/team");
+  const rateLimit = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "authenticated", "/api/team");
   if (!rateLimit.allowed) {
     return res
       .status(429)

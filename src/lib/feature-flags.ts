@@ -57,8 +57,8 @@ export async function getAllFlags(): Promise<FeatureFlag[]> {
     if (keys.length === 0) return Object.values(FLAGS_CONFIG);
     const values = await redis.mget(...keys);
     return values
-      .filter((v): v is string => v !== null)
-      .map((v) => JSON.parse(v) as FeatureFlag);
+      .filter((v: string | null): v is string => v !== null)
+      .map((v: string) => JSON.parse(v) as FeatureFlag);
   } catch {
     return Object.values(FLAGS_CONFIG);
   }

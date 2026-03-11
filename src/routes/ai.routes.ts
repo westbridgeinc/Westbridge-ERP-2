@@ -15,6 +15,7 @@ import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-ti
 import { getRedis } from "../lib/redis.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE } from "../lib/constants.js";
+import { toWebRequest } from "../middleware/auth.js";
 import { getPlan } from "../lib/modules.js";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { PlanId } from "../lib/modules.js";
@@ -60,7 +61,7 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
   }
 
-  const sessionResult = await validateSession(token, req as any);
+  const sessionResult = await validateSession(token, toWebRequest(req));
   if (!sessionResult.ok) {
     return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
   }
@@ -208,7 +209,7 @@ router.get("/ai/usage", async (req: Request, res: Response) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const sessionResult = await validateSession(token, req as any);
+  const sessionResult = await validateSession(token, toWebRequest(req));
   if (!sessionResult.ok) {
     return res.status(401).json({ error: "Unauthorized" });
   }

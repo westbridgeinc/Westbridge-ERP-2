@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { generateCsrfToken, CSRF_COOKIE_NAME, CSRF_HEADER_NAME, CSRF_MAX_AGE_SECONDS } from "../lib/csrf.js";
 import { apiSuccess, apiMeta, getRequestId } from "../types/api.js";
 import { COOKIE_SAME_SITE } from "../lib/constants.js";
+import { toWebRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -11,7 +12,7 @@ const router = Router();
  */
 router.get("/csrf", (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const token = generateCsrfToken();
 
   res.cookie(CSRF_COOKIE_NAME, token, {

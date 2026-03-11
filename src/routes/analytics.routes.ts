@@ -7,6 +7,7 @@
 import { Router, Request, Response } from "express";
 import { getRedis } from "../lib/redis.js";
 import { getClientIdentifier, checkTieredRateLimit } from "../lib/api/rate-limit-tiers.js";
+import { toWebRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -30,7 +31,7 @@ router.post("/analytics/track", async (req: Request, res: Response) => {
     return res.status(204).end();
   }
 
-  const identifier = getClientIdentifier(req as any);
+  const identifier = getClientIdentifier(toWebRequest(req));
   const { allowed } = await checkTieredRateLimit(identifier, "anonymous", "/api/analytics/track");
   if (!allowed) {
     return res.status(204).end(); // silently drop, don't error
@@ -71,7 +72,7 @@ router.post("/analytics/vitals", async (req: Request, res: Response) => {
     return res.status(204).end();
   }
 
-  const identifier = getClientIdentifier(req as any);
+  const identifier = getClientIdentifier(toWebRequest(req));
   const { allowed } = await checkTieredRateLimit(identifier, "anonymous", "/api/analytics/vitals");
   if (!allowed) {
     return res.status(204).end();

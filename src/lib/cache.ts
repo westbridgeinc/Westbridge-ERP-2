@@ -97,7 +97,7 @@ export const cache = {
     try {
       const tagKeys = tags.map((t) => `${TAG_PREFIX}${t}`);
       const keysets = await Promise.all(tagKeys.map((tk) => redis.smembers(tk)));
-      const keys = [...new Set(keysets.flat())];
+      const keys: string[] = [...new Set(keysets.flat())];
       if (keys.length === 0) return;
       const pipeline = redis.pipeline();
       pipeline.del(...(keys as string[]));
@@ -168,7 +168,7 @@ export const cache = {
             "EX",
             options.ttl + options.staleWhileRevalidate
           )
-          .catch((e) =>
+          .catch((e: unknown) =>
             logger.warn("Cache.wrap SWR key set failed", {
               key,
               error: e instanceof Error ? e.message : String(e),

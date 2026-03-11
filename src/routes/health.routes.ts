@@ -10,6 +10,7 @@ import { prisma } from "../lib/data/prisma.js";
 import { getRequestId, apiSuccess } from "../types/api.js";
 import { getRedis } from "../lib/redis.js";
 import { getUptimeSeconds } from "../lib/uptime.js";
+import { toWebRequest } from "../middleware/auth.js";
 import os from "os";
 import { statfsSync } from "fs";
 
@@ -102,7 +103,7 @@ function checkDisk(): CheckResult {
 // ---------------------------------------------------------------------------
 router.get("/health", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
 
   const [dbCheck, redisCheck, erpCheck] = await Promise.all([
     checkDatabase(),

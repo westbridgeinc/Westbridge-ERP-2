@@ -157,3 +157,42 @@ export function safeLogAudit(entry: Parameters<typeof logAudit>[0]): void {
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// CSV export helpers (extracted from audit.routes.ts)
+// ---------------------------------------------------------------------------
+
+export interface AuditRow {
+  timestamp: Date;
+  action: string;
+  userId: string | null;
+  ipAddress: string | null;
+  severity: string;
+  outcome: string;
+  resource: string | null;
+  resourceId: string | null;
+  metadata: unknown;
+}
+
+/** CSV header row matching the export spec. */
+export const CSV_HEADER =
+  "timestamp,action,userId,ipAddress,severity,outcome,resource,resourceId,metadata\n";
+
+/** Convert a single audit log row to RFC 4180 CSV. */
+export function rowToCsv(row: AuditRow): string {
+  const esc = (v: unknown): string => {
+    const s = v == null ? "" : String(v);
+    return `"${s.replace(/"/g, '""')}"`;
+  };
+  return [
+    esc(row.timestamp.toISOString()),
+    esc(row.action),
+    esc(row.userId),
+    esc(row.ipAddress),
+    esc(row.severity),
+    esc(row.outcome),
+    esc(row.resource),
+    esc(row.resourceId),
+    esc(row.metadata ? JSON.stringify(row.metadata) : ""),
+  ].join(",") + "\n";
+}

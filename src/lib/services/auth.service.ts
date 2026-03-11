@@ -1,10 +1,42 @@
 /**
- * Auth service: ERPNext login. Orchestrates data layer; returns Result.
+ * Auth service: ERPNext login, password hashing & verification.
+ * Orchestrates data layer; returns Result.
  */
 
 import { erpLogin } from "../data/auth.client.js";
 import type { Result } from "../utils/result.js";
 import { err } from "../utils/result.js";
+import bcrypt from "bcrypt";
+
+// ---------------------------------------------------------------------------
+// Password hashing & verification
+// ---------------------------------------------------------------------------
+
+const BCRYPT_ROUNDS = 12;
+
+/**
+ * Hash a password using bcrypt with 12 rounds.
+ */
+export async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+/**
+ * Verify a password against a stored hash.
+ * Supports legacy SHA-256 hex hashes (64-char) for migration from older installs.
+ */
+export async function verifyPassword(
+  password: string,
+  hash: string,
+): Promise<boolean> {
+  // Support legacy SHA-256 hashes (64 char hex) during migration
+  if (hash.length === 64 && /^[a-f0-9]+$/.test(hash)) {
+    const { createHash } = await import("node:crypto");
+    const sha256 = createHash("sha256").update(password).digest("hex");
+    return sha256 === hash;
+  }
+  return bcrypt.compare(password, hash);
+}
 
 // RFC 5322-inspired email format check. Not exhaustive — the goal is to reject
 // clearly invalid inputs (e.g. "x", "", "foo@") before sending them to ERPNext,

@@ -5,6 +5,7 @@ import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { signupBodySchema } from "../types/schemas/signup.js";
 import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
+import { toWebRequest } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 
 const router = Router();
@@ -23,7 +24,7 @@ const DISPOSABLE_EMAIL_DOMAINS = new Set([
 
 router.post("/signup", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
@@ -36,8 +37,8 @@ router.post("/signup", async (req: Request, res: Response) => {
       );
     }
 
-    const ctx = auditContext(req as any);
-    const id = getClientIdentifier(req as any);
+    const ctx = auditContext(toWebRequest(req));
+    const id = getClientIdentifier(toWebRequest(req));
     const rateLimit = await checkTieredRateLimit(id, "anonymous", "/api/signup");
     if (!rateLimit.allowed) {
       const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;

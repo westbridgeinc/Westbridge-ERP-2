@@ -4,7 +4,7 @@ import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { validateErpFilters } from "../lib/validation/erp-filters.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { checkTieredRateLimit, checkErpAccountRateLimit, getClientIdentifier, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, toWebRequest } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../lib/data/prisma.js";
 import { ALLOWED_DOCTYPES_SET } from "../lib/erp-constants.js";
@@ -14,207 +14,23 @@ import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { reportSecurityEvent } from "../lib/security-monitor.js";
 import { validateSession } from "../lib/services/session.service.js";
 import { COOKIE } from "../lib/constants.js";
+import { buildDashboardData, DEMO_DATA } from "../lib/services/dashboard.service.js";
 
 const router = Router();
 
 const MAX_BODY_BYTES = 1_048_576;
 
-// ─── Interfaces for dashboard ──────────────────────────────────────────────────
-
-interface RevenuePoint { month: string; value: number }
-interface ActivityItem { text: string; time: string; type: "success" | "error" | "info" | "default" }
-
-interface DashboardPayload {
-  revenueMTD: number;
-  revenueChange: number;
-  outstandingCount: number;
-  openDealsCount: number;
-  employeeCount: number;
-  employeeDelta: number;
-  revenueData: RevenuePoint[];
-  activity: ActivityItem[];
-  /** True when ERP is unreachable and the response contains sample data, not live data. */
-  isDemo?: boolean;
-}
-
-// ─── Demo / fallback data ─────────────────────────────────────────────────────
-const DEMO_DATA: DashboardPayload = {
-  revenueMTD: 48250,
-  revenueChange: 12,
-  outstandingCount: 7,
-  openDealsCount: 14,
-  employeeCount: 23,
-  employeeDelta: 2,
-  revenueData: [
-    { month: "Sep", value: 1.8 },
-    { month: "Oct", value: 2.1 },
-    { month: "Nov", value: 2.4 },
-    { month: "Dec", value: 1.9 },
-    { month: "Jan", value: 3.1 },
-    { month: "Feb", value: 3.4 },
-  ],
-  activity: [
-    { text: "Invoice #SI-00041 paid — $4,200", time: "2h ago", type: "success" },
-    { text: "New sales order from Massy Distribution", time: "4h ago", type: "info" },
-    { text: "Purchase order approved — $12,500", time: "6h ago", type: "success" },
-    { text: "Payroll run completed for 23 employees", time: "1d ago", type: "success" },
-    { text: "Invoice #SI-00039 overdue — $1,800", time: "2d ago", type: "error" },
-  ],
-  isDemo: true,
-};
-
-const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function formatRelativeTime(dateStr: string): string {
-  if (!dateStr) return "";
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
-// ─── Real data aggregation ────────────────────────────────────────────────────
-
-async function buildDashboardData(
-  sessionId: string,
-  accountId: string,
-  erpnextCompany: string | null
-): Promise<DashboardPayload> {
-  const now = new Date();
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    .toISOString()
-    .slice(0, 10);
-
-  // Parallel ERP fetches — any individual failure falls back gracefully
-  const [invoicesRes, ordersRes, employeesRes] = await Promise.allSettled([
-    list("Sales Invoice", sessionId, { limit_page_length: "100" }, accountId, erpnextCompany),
-    list("Sales Order", sessionId, { limit_page_length: "50", filters: JSON.stringify([["Sales Order", "status", "in", ["Draft", "To Deliver and Bill", "To Bill", "To Deliver"]]]) }, accountId, erpnextCompany),
-    list("Employee", sessionId, { limit_page_length: "100", fields: JSON.stringify(["name", "date_of_joining", "status"]) }, accountId, erpnextCompany),
-  ]);
-
-  // If all three calls failed, bail out to demo data
-  const anySucceeded = [invoicesRes, ordersRes, employeesRes].some((r) => r.status === "fulfilled" && r.value.ok);
-  if (!anySucceeded) return DEMO_DATA;
-
-  // Revenue MTD — sum paid invoices this month
-  const invoices = invoicesRes.status === "fulfilled" && invoicesRes.value.ok
-    ? (invoicesRes.value.data as Record<string, unknown>[])
-    : [];
-
-  let revenueMTD = 0;
-  let outstandingCount = 0;
-
-  for (const inv of invoices) {
-    const status = String(inv.status ?? "");
-    const postingDate = String(inv.posting_date ?? "");
-    const grandTotal = Number(inv.grand_total ?? 0);
-
-    if (status === "Paid" && postingDate >= firstOfMonth) {
-      revenueMTD += grandTotal;
-    }
-    if (status === "Unpaid" || status === "Overdue") {
-      outstandingCount++;
-    }
-  }
-
-  // 6-month revenue trend
-  const revenueByMonth: Record<string, number> = {};
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    revenueByMonth[`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`] = 0;
-  }
-  for (const inv of invoices) {
-    if (String(inv.status ?? "") !== "Paid") continue;
-    const month = String(inv.posting_date ?? "").slice(0, 7);
-    if (month in revenueByMonth) {
-      revenueByMonth[month] += Number(inv.grand_total ?? 0);
-    }
-  }
-  const revenueData: RevenuePoint[] = Object.entries(revenueByMonth).map(([key, val]) => {
-    const [, m] = key.split("-");
-    return { month: MONTH_LABELS[parseInt(m, 10) - 1], value: parseFloat((val / 1_000_000).toFixed(2)) };
-  });
-
-  // Revenue change (last month vs month before)
-  const monthValues = Object.values(revenueByMonth);
-  const prevMonth = monthValues[monthValues.length - 2] ?? 0;
-  const currMonth = monthValues[monthValues.length - 1] ?? 0;
-  const revenueChange = prevMonth > 0
-    ? Math.round(((currMonth - prevMonth) / prevMonth) * 100)
-    : 0;
-
-  // Open sales orders
-  const openDealsCount =
-    ordersRes.status === "fulfilled" && ordersRes.value.ok
-      ? (ordersRes.value.data as unknown[]).length
-      : DEMO_DATA.openDealsCount;
-
-  // Employee count (active employees only)
-  const employees =
-    employeesRes.status === "fulfilled" && employeesRes.value.ok
-      ? (employeesRes.value.data as Record<string, unknown>[])
-      : [];
-  const activeEmployees = employees.filter((e) => String(e.status ?? "") !== "Left");
-  const employeeCount = activeEmployees.length || DEMO_DATA.employeeCount;
-
-  // Delta: employees who joined this month
-  const employeeDelta = activeEmployees.filter((e) => {
-    const joined = String(e.date_of_joining ?? "");
-    return joined >= firstOfMonth;
-  }).length;
-
-  // Activity feed — recent invoices + orders
-  const activityItems: ActivityItem[] = [];
-  for (const inv of invoices.slice(0, 8)) {
-    const status = String(inv.status ?? "");
-    if (status === "Paid") {
-      activityItems.push({
-        text: `Invoice ${String(inv.name ?? "")} paid — $${Number(inv.grand_total ?? 0).toLocaleString()}`,
-        time: formatRelativeTime(String(inv.modified ?? inv.creation ?? "")),
-        type: "success",
-      });
-    } else if (status === "Overdue") {
-      activityItems.push({
-        text: `Invoice ${String(inv.name ?? "")} overdue — $${Number(inv.outstanding_amount ?? inv.grand_total ?? 0).toLocaleString()}`,
-        time: formatRelativeTime(String(inv.modified ?? inv.creation ?? "")),
-        type: "error",
-      });
-    }
-  }
-
-  // isDemo is true if any metric fell back to DEMO_DATA values
-  const usingDemoActivity = activityItems.length === 0;
-  const usingDemoOrders = !(ordersRes.status === "fulfilled" && ordersRes.value.ok);
-  const usingDemoEmployees = activeEmployees.length === 0;
-  const isDemo = usingDemoActivity || usingDemoOrders || usingDemoEmployees;
-
-  return {
-    revenueMTD,
-    revenueChange,
-    outstandingCount,
-    openDealsCount,
-    employeeCount,
-    employeeDelta,
-    revenueData,
-    activity: activityItems.length > 0 ? activityItems.slice(0, 5) : DEMO_DATA.activity,
-    isDemo,
-  };
-}
-
 // ─── GET /erp/list ─────────────────────────────────────────────────────────────
 
 router.get("/erp/list", requireAuth, async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms`, "Cache-Control": "private, no-cache, no-store, must-revalidate", "Vary": "Accept-Encoding, Accept" });
 
   try {
-    const session = (req as any).session;
-    const rateLimit = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/erp/list");
+    const session = req.session!;
+    const rateLimit = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "authenticated", "/api/erp/list");
     if (!rateLimit.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimit) });
       return res.status(429).json(
@@ -228,7 +44,7 @@ router.get("/erp/list", requireAuth, async (req: Request, res: Response) => {
         apiError("RATE_LIMIT", "Too many ERP requests for this account. Try again in a minute.", undefined, meta())
       );
     }
-    const ctx = auditContext(req as any);
+    const ctx = auditContext(toWebRequest(req));
     const { accountId, erpnextSid } = session;
     if (!erpnextSid) {
       res.set(responseHeaders());
@@ -333,18 +149,18 @@ router.get("/erp/list", requireAuth, async (req: Request, res: Response) => {
 
 router.get("/erp/doc", requireAuth, async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
   try {
-    const session = (req as any).session;
+    const session = req.session!;
     if (!session.erpnextSid) {
       res.set(responseHeaders());
       return res.status(401).json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
     }
-    const ctx = auditContext(req as any);
-    const rateLimitGet = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/erp/doc");
+    const ctx = auditContext(toWebRequest(req));
+    const rateLimitGet = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "authenticated", "/api/erp/doc");
     if (!rateLimitGet.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimitGet) });
       return res.status(429).json(
@@ -407,7 +223,7 @@ router.get("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
 router.post("/erp/doc", requireAuth, async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
@@ -420,8 +236,8 @@ router.post("/erp/doc", requireAuth, async (req: Request, res: Response) => {
       );
     }
 
-    const session = (req as any).session;
-    const ctx = auditContext(req as any);
+    const session = req.session!;
+    const ctx = auditContext(toWebRequest(req));
 
     // CSRF must be validated before any business logic (including ERP session check)
     const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
@@ -454,7 +270,7 @@ router.post("/erp/doc", requireAuth, async (req: Request, res: Response) => {
       return res.status(401).json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
     }
 
-    const rateLimitPost = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/erp/doc");
+    const rateLimitPost = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "authenticated", "/api/erp/doc");
     if (!rateLimitPost.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimitPost) });
       return res.status(429).json(
@@ -530,7 +346,7 @@ router.post("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
 router.put("/erp/doc", requireAuth, async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
@@ -543,8 +359,8 @@ router.put("/erp/doc", requireAuth, async (req: Request, res: Response) => {
       );
     }
 
-    const session = (req as any).session;
-    const ctx = auditContext(req as any);
+    const session = req.session!;
+    const ctx = auditContext(toWebRequest(req));
 
     // CSRF must be validated before any business logic
     const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
@@ -577,7 +393,7 @@ router.put("/erp/doc", requireAuth, async (req: Request, res: Response) => {
       return res.status(401).json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
     }
 
-    const rateLimitPut = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/erp/doc");
+    const rateLimitPut = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "authenticated", "/api/erp/doc");
     if (!rateLimitPut.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimitPut) });
       return res.status(429).json(
@@ -661,13 +477,13 @@ router.put("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
 router.delete("/erp/doc", requireAuth, async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
   try {
-    const session = (req as any).session;
-    const ctx = auditContext(req as any);
+    const session = req.session!;
+    const ctx = auditContext(toWebRequest(req));
 
     // CSRF must be validated before any business logic
     const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
@@ -700,7 +516,7 @@ router.delete("/erp/doc", requireAuth, async (req: Request, res: Response) => {
       return res.status(401).json(apiError("UNAUTHORIZED", "ERP session not available. Please log in again.", undefined, meta()));
     }
 
-    const rateLimitDelete = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/erp/doc");
+    const rateLimitDelete = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "authenticated", "/api/erp/doc");
     if (!rateLimitDelete.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimitDelete) });
       return res.status(429).json(
@@ -762,7 +578,7 @@ router.delete("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
 router.get("/erp/dashboard", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseHeaders = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
@@ -773,13 +589,13 @@ router.get("/erp/dashboard", async (req: Request, res: Response) => {
       res.set(responseHeaders());
       return res.status(401).json(apiError("UNAUTHORIZED", "Not authenticated", undefined, meta()));
     }
-    const session = await validateSession(token, req as any);
+    const session = await validateSession(token, toWebRequest(req));
     if (!session.ok) {
       res.set(responseHeaders());
       return res.status(401).json(apiError("UNAUTHORIZED", session.error, undefined, meta()));
     }
 
-    const rateLimit = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/erp/dashboard");
+    const rateLimit = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "authenticated", "/api/erp/dashboard");
     if (!rateLimit.allowed) {
       res.set({ ...responseHeaders(), ...rateLimitHeaders(rateLimit) });
       return res.status(429).json(apiError("RATE_LIMIT", "Too many requests", undefined, meta()));
@@ -804,7 +620,7 @@ router.get("/erp/dashboard", async (req: Request, res: Response) => {
   } catch (err) {
     Sentry.captureException(err);
     // Never let the dashboard error — return demo data on unexpected failure
-    const requestIdFallback = getRequestId(req as any);
+    const requestIdFallback = getRequestId(toWebRequest(req));
     res.set(responseHeaders());
     return res.json(
       apiSuccess(DEMO_DATA, apiMeta({ request_id: requestIdFallback }))

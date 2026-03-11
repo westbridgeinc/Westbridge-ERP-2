@@ -15,7 +15,6 @@
 
 import { Router, Request, Response } from "express";
 import { createHash } from "crypto";
-import bcrypt from "bcrypt";
 import { z } from "zod";
 import * as Sentry from "@sentry/node";
 
@@ -25,7 +24,7 @@ import {
   getClientIdentifier,
   rateLimitHeaders,
 } from "../lib/api/rate-limit-tiers.js";
-import { login } from "../lib/services/auth.service.js";
+import { login, hashPassword, verifyPassword } from "../lib/services/auth.service.js";
 import {
   createSession,
   validateSession,
@@ -38,6 +37,7 @@ import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 import { prisma } from "../lib/data/prisma.js";
 import { COOKIE, COOKIE_SAME_SITE } from "../lib/constants.js";
 import { reportSecurityEvent } from "../lib/security-monitor.js";
+import { toWebRequest } from "../middleware/auth.js";
 import { requestPasswordReset } from "../lib/services/password-reset.service.js";
 import { applyPasswordReset } from "../lib/services/password-reset.service.js";
 import { validatePassword } from "../lib/password-policy.js";
@@ -48,22 +48,6 @@ import { validatePassword } from "../lib/password-policy.js";
 
 const MAX_BODY_BYTES = 1_048_576;
 
-const BCRYPT_ROUNDS = 12;
-
-async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, BCRYPT_ROUNDS);
-}
-
-async function verifyPassword(password: string, hash: string): Promise<boolean> {
-  // Support legacy SHA-256 hashes (64 char hex) during migration
-  if (hash.length === 64 && /^[a-f0-9]+$/.test(hash)) {
-    const { createHash } = await import("node:crypto");
-    const sha256 = createHash("sha256").update(password).digest("hex");
-    return sha256 === hash;
-  }
-  return bcrypt.compare(password, hash);
-}
-
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -73,10 +57,10 @@ const router = Router();
 // ========================== POST /login ====================================
 router.post("/login", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as unknown as globalThis.Request);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseTime = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
-  const ctx = auditContext(req as unknown as globalThis.Request);
+  const ctx = auditContext(toWebRequest(req));
 
   try {
     // --- Payload size guard ---
@@ -99,7 +83,7 @@ router.post("/login", async (req: Request, res: Response) => {
     }
 
     // --- IP / anonymous rate limit ---
-    const id = getClientIdentifier(req as unknown as globalThis.Request);
+    const id = getClientIdentifier(toWebRequest(req));
     const rateLimit = await checkTieredRateLimit(
       id,
       "anonymous",
@@ -363,7 +347,7 @@ router.post("/login", async (req: Request, res: Response) => {
     const erpnextSid = loginResult.data;
     const sessionResult = await createSession(
       user.id,
-      req as unknown as globalThis.Request,
+      toWebRequest(req),
       erpnextSid,
     );
     if (!sessionResult.ok) {
@@ -443,7 +427,7 @@ router.post("/login", async (req: Request, res: Response) => {
 // ========================== POST /logout ===================================
 router.post("/logout", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as unknown as globalThis.Request);
+  const requestId = getRequestId(toWebRequest(req));
   const responseTime = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
   // --- CSRF validation ---
@@ -467,12 +451,12 @@ router.post("/logout", async (req: Request, res: Response) => {
       );
   }
 
-  const ctx = auditContext(req as unknown as globalThis.Request);
+  const ctx = auditContext(toWebRequest(req));
   const sid = req.cookies?.[COOKIE.SESSION_NAME] ?? undefined;
   if (sid) {
     const sessionResult = await validateSession(
       sid,
-      req as unknown as globalThis.Request,
+      toWebRequest(req),
     );
     if (sessionResult.ok) {
       void logAudit({
@@ -509,10 +493,10 @@ router.post("/logout", async (req: Request, res: Response) => {
 // ========================== GET /validate ==================================
 router.get("/validate", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as unknown as globalThis.Request);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseTime = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
-  const ctx = auditContext(req as unknown as globalThis.Request);
+  const ctx = auditContext(toWebRequest(req));
 
   const token = req.cookies?.[COOKIE.SESSION_NAME] ?? undefined;
   if (!token) {
@@ -526,7 +510,7 @@ router.get("/validate", async (req: Request, res: Response) => {
 
   const result = await validateSession(
     token,
-    req as unknown as globalThis.Request,
+    toWebRequest(req),
   );
   if (!result.ok) {
     const systemAccountId = process.env.SYSTEM_ACCOUNT_ID;
@@ -576,7 +560,7 @@ router.get("/validate", async (req: Request, res: Response) => {
 // ========================== POST /forgot-password ==========================
 router.post("/forgot-password", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as unknown as globalThis.Request);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseTime = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
@@ -584,7 +568,7 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
 
   try {
     const { allowed } = await checkTieredRateLimit(
-      getClientIdentifier(req as unknown as globalThis.Request),
+      getClientIdentifier(toWebRequest(req)),
       "anonymous",
       "/api/auth/forgot-password",
     );
@@ -673,7 +657,7 @@ router.post("/forgot-password", async (req: Request, res: Response) => {
 // ========================== POST /reset-password ===========================
 router.post("/reset-password", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as unknown as globalThis.Request);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseTime = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
@@ -684,7 +668,7 @@ router.post("/reset-password", async (req: Request, res: Response) => {
 
   try {
     const rateLimit = await checkTieredRateLimit(
-      getClientIdentifier(req as unknown as globalThis.Request),
+      getClientIdentifier(toWebRequest(req)),
       "anonymous",
       "/api/auth/reset-password",
     );
@@ -800,7 +784,7 @@ router.post("/reset-password", async (req: Request, res: Response) => {
 // ========================== POST /change-password ==========================
 router.post("/change-password", async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as unknown as globalThis.Request);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
   const responseTime = () => ({ "X-Response-Time": `${Date.now() - start}ms` });
 
@@ -842,7 +826,7 @@ router.post("/change-password", async (req: Request, res: Response) => {
     }
     const session = await validateSession(
       token,
-      req as unknown as globalThis.Request,
+      toWebRequest(req),
     );
     if (!session.ok) {
       return res

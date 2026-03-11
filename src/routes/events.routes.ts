@@ -7,6 +7,7 @@ import { Router, Request, Response } from "express";
 import { validateSession } from "../lib/services/session.service.js";
 import { subscribe } from "../lib/realtime.js";
 import { COOKIE } from "../lib/constants.js";
+import { toWebRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -17,7 +18,7 @@ const KEEPALIVE_INTERVAL_MS = 25_000;
 // ---------------------------------------------------------------------------
 router.get("/events/stream", async (req: Request, res: Response) => {
   const token = req.cookies?.[COOKIE.SESSION_NAME];
-  const result = token ? await validateSession(token, req as any) : null;
+  const result = token ? await validateSession(token, toWebRequest(req)) : null;
   if (!result?.ok) {
     return res.status(401).send("Unauthorized");
   }
@@ -37,8 +38,8 @@ router.get("/events/stream", async (req: Request, res: Response) => {
     const id = event.id ?? String(Date.now());
     lastEventId = id;
     res.write(`id: ${id}\nevent: ${event.type}\ndata: ${JSON.stringify(event.payload)}\n\n`);
-    if (typeof (res as any).flush === "function") {
-      (res as any).flush();
+    if (typeof (res as Response & { flush?: () => void }).flush === "function") {
+      (res as Response & { flush?: () => void }).flush!();
     }
   };
 
@@ -54,8 +55,8 @@ router.get("/events/stream", async (req: Request, res: Response) => {
   const keepalive = setInterval(() => {
     try {
       res.write(`: keepalive\n\n`);
-      if (typeof (res as any).flush === "function") {
-        (res as any).flush();
+      if (typeof (res as Response & { flush?: () => void }).flush === "function") {
+        (res as Response & { flush?: () => void }).flush!();
       }
     } catch {
       clearInterval(keepalive);

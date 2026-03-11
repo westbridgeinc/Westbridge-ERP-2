@@ -10,7 +10,7 @@ import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { checkTieredRateLimit, getClientIdentifier, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
 import { meter, estimateAiCost } from "../lib/metering.js";
 import { prisma } from "../lib/data/prisma.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, toWebRequest } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 
 const router = Router();
@@ -65,13 +65,13 @@ router.get("/metrics", async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 router.get("/usage", requireAuth, async (req: Request, res: Response) => {
   const start = Date.now();
-  const requestId = getRequestId(req as any);
+  const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const session = (req as any).session;
+    const session = req.session!;
 
-    const rateLimit = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/usage");
+    const rateLimit = await checkTieredRateLimit(getClientIdentifier(toWebRequest(req)), "authenticated", "/api/usage");
     if (!rateLimit.allowed) {
       return res
         .status(429)
