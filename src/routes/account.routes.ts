@@ -79,6 +79,138 @@ router.patch("/account/profile", async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /account/export — GDPR right to data portability (Article 20)
+// ---------------------------------------------------------------------------
+router.get("/account/export", async (req: Request, res: Response) => {
+  const start = Date.now();
+  const requestId = getRequestId(toWebRequest(req));
+  const meta = () => apiMeta({ request_id: requestId });
+
+  try {
+    const token = req.cookies?.[COOKIE.SESSION_NAME];
+    if (!token) {
+      return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Authentication required", undefined, meta()));
+    }
+    const sessionResult = await validateSession(token, toWebRequest(req));
+    if (!sessionResult.ok) {
+      return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Authentication required", undefined, meta()));
+    }
+    const session = sessionResult.data;
+
+    if (session.role !== "owner" && session.role !== "admin") {
+      return res.status(403).set("X-Response-Time", `${Date.now() - start}ms`).json(
+        apiError("FORBIDDEN", "Only account owner or admin can export account data", undefined, meta())
+      );
+    }
+
+    const rateLimit = await checkTieredRateLimit(session.userId, "authenticated", "/api/account/export");
+    if (!rateLimit.allowed) {
+      return res
+        .status(429)
+        .set("X-Response-Time", `${Date.now() - start}ms`)
+        .set(rateLimitHeaders(rateLimit) as Record<string, string>)
+        .json(apiError("RATE_LIMIT", "Export rate limit: 3 per hour. Try again later.", undefined, meta()));
+    }
+
+    const ctx = auditContext(toWebRequest(req));
+
+    // Gather all account data in a portable format
+    const [account, users, auditLogs, subscriptions, apiKeys, webhooks, invites] = await Promise.all([
+      prisma.account.findUnique({
+        where: { id: session.accountId },
+        select: {
+          id: true, email: true, companyName: true, plan: true,
+          status: true, erpnextCompany: true, modulesSelected: true,
+          createdAt: true, updatedAt: true,
+        },
+      }),
+      prisma.user.findMany({
+        where: { accountId: session.accountId },
+        select: {
+          id: true, name: true, email: true, role: true,
+          status: true, createdAt: true, updatedAt: true,
+        },
+      }),
+      prisma.auditLog.findMany({
+        where: { accountId: session.accountId },
+        orderBy: { timestamp: "desc" },
+        take: 10_000,
+        select: {
+          id: true, action: true, resource: true, resourceId: true,
+          userId: true, severity: true, outcome: true, timestamp: true,
+        },
+      }),
+      prisma.subscription.findMany({
+        where: { accountId: session.accountId },
+        select: {
+          id: true, plan: true, status: true, startDate: true,
+          endDate: true, createdAt: true,
+        },
+      }),
+      prisma.apiKey.findMany({
+        where: { accountId: session.accountId },
+        select: {
+          id: true, prefix: true, label: true, createdAt: true,
+          lastUsedAt: true, expiresAt: true,
+        },
+      }),
+      prisma.webhookEndpoint.findMany({
+        where: { accountId: session.accountId },
+        select: {
+          id: true, url: true, events: true, enabled: true,
+          createdAt: true,
+        },
+      }),
+      prisma.inviteToken.findMany({
+        where: { accountId: session.accountId },
+        select: {
+          id: true, email: true, role: true, status: true,
+          createdAt: true, expiresAt: true,
+        },
+      }),
+    ]);
+
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      exportVersion: "1.0",
+      account,
+      users,
+      subscriptions,
+      apiKeys,
+      webhooks,
+      invites,
+      auditLogs: {
+        count: auditLogs.length,
+        note: auditLogs.length >= 10_000 ? "Truncated to most recent 10,000 entries" : undefined,
+        entries: auditLogs,
+      },
+    };
+
+    void logAudit({
+      accountId: session.accountId,
+      userId: session.userId,
+      action: "account.data_exported",
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      severity: "info",
+      outcome: "success",
+    });
+
+    const filename = `westbridge-export-${session.accountId}-${new Date().toISOString().slice(0, 10)}.json`;
+    return res
+      .set("Content-Type", "application/json")
+      .set("Content-Disposition", `attachment; filename="${filename}"`)
+      .set("X-Response-Time", `${Date.now() - start}ms`)
+      .json(exportData);
+  } catch (err) {
+    Sentry.captureException(err);
+    return res.status(500).set("X-Response-Time", `${Date.now() - start}ms`).json(
+      apiError("INTERNAL", "An unexpected error occurred", undefined, meta())
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
 // DELETE /account/delete — GDPR right-to-deletion (owner only)
 // ---------------------------------------------------------------------------
 router.delete("/account/delete", async (req: Request, res: Response) => {
