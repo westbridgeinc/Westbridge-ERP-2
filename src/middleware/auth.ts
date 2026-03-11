@@ -5,6 +5,8 @@
 import type { Request, Response, NextFunction } from "express";
 import { validateSession } from "../lib/services/session.service.js";
 import { COOKIE, COOKIE_SAME_SITE } from "../lib/constants.js";
+import { hasPermission, type Permission } from "../lib/rbac.js";
+import { logAudit } from "../lib/services/audit.service.js";
 
 export interface SessionData {
   userId: string;
@@ -58,6 +60,39 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   } catch {
     res.status(500).json({ ok: false, error: { code: "AUTH_ERROR", message: "Authentication check failed" } });
   }
+}
+
+/**
+ * Middleware factory: checks that the authenticated user's role has the required permission.
+ * Must be used AFTER requireAuth (which attaches req.session).
+ */
+export function requirePermission(permission: Permission) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const session = (req as any).session;
+
+    if (!session) {
+      res.status(401).json({ ok: false, error: { code: "UNAUTHORIZED", message: "Authentication required" } });
+      return;
+    }
+
+    if (!hasPermission(session.role, permission)) {
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "permission.denied",
+        resourceId: req.path,
+        ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "unknown",
+        severity: "warn",
+        outcome: "failure",
+        metadata: { required: permission, actual_role: session.role, path: req.path, method: req.method },
+      });
+
+      res.status(403).json({ ok: false, error: { code: "FORBIDDEN", message: "Insufficient permissions" } });
+      return;
+    }
+
+    next();
+  };
 }
 
 /**

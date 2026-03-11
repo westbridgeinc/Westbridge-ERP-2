@@ -9,7 +9,7 @@ import { logAudit, auditContext } from "../lib/services/audit.service.js";
 import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { checkTieredRateLimit, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requirePermission } from "../middleware/auth.js";
 import * as Sentry from "@sentry/node";
 
 const router = Router();
@@ -52,7 +52,7 @@ function rowToCsv(row: {
 // ---------------------------------------------------------------------------
 // GET /audit — paginated audit logs for the current account
 // ---------------------------------------------------------------------------
-router.get("/audit", requireAuth, async (req: Request, res: Response) => {
+router.get("/audit", requireAuth, requirePermission("audit_logs:read"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(req as any);
   const meta = (pagination?: { page: number; per_page: number; total: number; total_pages: number }) =>
@@ -122,7 +122,7 @@ router.get("/audit", requireAuth, async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /audit/export — streamed audit log export (CSV or JSON)
 // ---------------------------------------------------------------------------
-router.get("/audit/export", requireAuth, async (req: Request, res: Response) => {
+router.get("/audit/export", requireAuth, requirePermission("audit_logs:read"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(req as any);
   const ctx = auditContext(req as any);

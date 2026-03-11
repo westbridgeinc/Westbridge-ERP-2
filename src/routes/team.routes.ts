@@ -4,11 +4,10 @@
  * GET /team — returns all users belonging to the current account
  */
 import { Router, Request, Response } from "express";
-import { validateSession } from "../lib/services/session.service.js";
 import { prisma } from "../lib/data/prisma.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
 import { checkTieredRateLimit, getClientIdentifier, rateLimitHeaders } from "../lib/api/rate-limit-tiers.js";
-import { COOKIE } from "../lib/constants.js";
+import { requireAuth, requirePermission } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -27,19 +26,12 @@ function formatRelative(date: Date): string {
 // ---------------------------------------------------------------------------
 // GET /team — returns all users belonging to the current account
 // ---------------------------------------------------------------------------
-router.get("/team", async (req: Request, res: Response) => {
+router.get("/team", requireAuth, requirePermission("users:read"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(req as any);
   const meta = () => apiMeta({ request_id: requestId });
 
-  const token = req.cookies?.[COOKIE.SESSION_NAME];
-  if (!token) {
-    return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Not authenticated", undefined, meta()));
-  }
-  const session = await validateSession(token, req as any);
-  if (!session.ok) {
-    return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", session.error, undefined, meta()));
-  }
+  const session = (req as any).session;
 
   const rateLimit = await checkTieredRateLimit(getClientIdentifier(req as any), "authenticated", "/api/team");
   if (!rateLimit.allowed) {
@@ -51,7 +43,7 @@ router.get("/team", async (req: Request, res: Response) => {
   }
 
   const users = await prisma.user.findMany({
-    where: { accountId: session.data.accountId },
+    where: { accountId: session.accountId },
     select: {
       id: true,
       name: true,
@@ -63,7 +55,7 @@ router.get("/team", async (req: Request, res: Response) => {
     orderBy: { createdAt: "asc" },
   });
 
-  const currentUserId = session.data.userId;
+  const currentUserId = session.userId;
 
   const members = users.map((u) => ({
     id: u.id,

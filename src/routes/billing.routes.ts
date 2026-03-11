@@ -4,32 +4,24 @@
  * GET /billing/history — returns the account's billing/payment history
  */
 import { Router, Request, Response } from "express";
-import { validateSession } from "../lib/services/session.service.js";
 import { prisma } from "../lib/data/prisma.js";
-import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
-import { COOKIE } from "../lib/constants.js";
+import { apiSuccess, apiMeta, getRequestId } from "../types/api.js";
+import { requireAuth, requirePermission } from "../middleware/auth.js";
 
 const router = Router();
 
 // ---------------------------------------------------------------------------
 // GET /billing/history — returns the account's billing/payment history
 // ---------------------------------------------------------------------------
-router.get("/billing/history", async (req: Request, res: Response) => {
+router.get("/billing/history", requireAuth, requirePermission("billing:read"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(req as any);
   const meta = () => apiMeta({ request_id: requestId });
 
-  const token = req.cookies?.[COOKIE.SESSION_NAME];
-  if (!token) {
-    return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Not authenticated", undefined, meta()));
-  }
-  const session = await validateSession(token, req as any);
-  if (!session.ok) {
-    return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", session.error, undefined, meta()));
-  }
+  const session = (req as any).session;
 
   const account = await prisma.account.findUnique({
-    where: { id: session.data.accountId },
+    where: { id: session.accountId },
     select: { plan: true, status: true, createdAt: true },
   });
 

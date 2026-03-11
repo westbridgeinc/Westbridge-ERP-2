@@ -9,9 +9,7 @@
  */
 import { Router, Request, Response } from "express";
 import { getAllFlags, setFlag } from "../lib/feature-flags.js";
-import { validateSession } from "../lib/services/session.service.js";
 import { apiSuccess, apiError, apiMeta, getRequestId } from "../types/api.js";
-import { COOKIE } from "../lib/constants.js";
 import * as Sentry from "@sentry/node";
 import { z } from "zod";
 import { emailQueue, erpSyncQueue, reportsQueue, cleanupQueue } from "../lib/jobs/queue.js";
@@ -19,7 +17,8 @@ import type { Queue } from "bullmq";
 import { cacheControl } from "../lib/api/cache-headers.js";
 import { prisma } from "../lib/data/prisma.js";
 import { logAudit } from "../lib/services/audit.service.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requirePermission } from "../middleware/auth.js";
+import { validateCsrf, CSRF_COOKIE_NAME } from "../lib/csrf.js";
 
 const router = Router();
 
@@ -60,22 +59,12 @@ const QUEUES_MAP: Record<string, Queue> = {
 // ---------------------------------------------------------------------------
 // GET /admin/flags — list all feature flags
 // ---------------------------------------------------------------------------
-router.get("/admin/flags", async (req: Request, res: Response) => {
+router.get("/admin/flags", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(req as any);
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const token = req.cookies?.[COOKIE.SESSION_NAME];
-    const sessionResult = token ? await validateSession(token, req as any) : null;
-    if (!sessionResult?.ok) {
-      return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Authentication required", undefined, meta()));
-    }
-    const session = sessionResult.data;
-    if (session.role !== "owner" && session.role !== "admin") {
-      return res.status(403).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("FORBIDDEN", "Admin access required", undefined, meta()));
-    }
-
     const flags = await getAllFlags();
     return res.set("X-Response-Time", `${Date.now() - start}ms`).json(apiSuccess(flags, meta()));
   } catch (error) {
@@ -87,20 +76,28 @@ router.get("/admin/flags", async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // PUT /admin/flags — update a feature flag (owner only)
 // ---------------------------------------------------------------------------
-router.put("/admin/flags", async (req: Request, res: Response) => {
+router.put("/admin/flags", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(req as any);
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const token = req.cookies?.[COOKIE.SESSION_NAME];
-    const sessionResult = token ? await validateSession(token, req as any) : null;
-    if (!sessionResult?.ok) {
-      return res.status(401).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("UNAUTHORIZED", "Authentication required", undefined, meta()));
-    }
-    const session = sessionResult.data;
-    if (session.role !== "owner") {
-      return res.status(403).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("FORBIDDEN", "Owner access required to modify flags", undefined, meta()));
+    const session = (req as any).session;
+
+    // CSRF validation
+    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
+    const csrfHeader = (req.headers["x-csrf-token"] as string) ?? (req.headers["X-CSRF-Token"] as string);
+    if (!validateCsrf(csrfHeader, csrfCookie)) {
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "admin.csrf_failure",
+        resourceId: req.path,
+        ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "unknown",
+        severity: "warn",
+        outcome: "failure",
+      });
+      return res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta()));
     }
 
     const body = req.body;
@@ -125,17 +122,12 @@ router.put("/admin/flags", async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /admin/jobs — queue stats from BullMQ for all queues
 // ---------------------------------------------------------------------------
-router.get("/admin/jobs", requireAuth, async (req: Request, res: Response) => {
+router.get("/admin/jobs", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(req as any);
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
-    const session = (req as any).session;
-    if (!session || (session.role !== "owner" && session.role !== "admin")) {
-      return res.status(403).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("FORBIDDEN", "Admin access required", undefined, meta()));
-    }
-
     const stats = await Promise.all(
       QUEUES_LIST.map(async ({ name, queue }) => {
         const [waitingCount, activeCount, completedCount, failedCount, failedJobs] = await Promise.all([
@@ -184,15 +176,28 @@ router.get("/admin/jobs", requireAuth, async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /admin/jobs/:id/retry — retry a specific failed BullMQ job
 // ---------------------------------------------------------------------------
-router.post("/admin/jobs/:id/retry", requireAuth, async (req: Request, res: Response) => {
+router.post("/admin/jobs/:id/retry", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(req as any);
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
     const session = (req as any).session;
-    if (!session || (session.role !== "owner" && session.role !== "admin")) {
-      return res.status(403).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("FORBIDDEN", "Admin access required", undefined, meta()));
+
+    // CSRF validation
+    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
+    const csrfHeader = (req.headers["x-csrf-token"] as string) ?? (req.headers["X-CSRF-Token"] as string);
+    if (!validateCsrf(csrfHeader, csrfCookie)) {
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "admin.csrf_failure",
+        resourceId: req.path,
+        ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "unknown",
+        severity: "warn",
+        outcome: "failure",
+      });
+      return res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta()));
     }
 
     const { id } = req.params;
@@ -223,15 +228,28 @@ router.post("/admin/jobs/:id/retry", requireAuth, async (req: Request, res: Resp
 // ---------------------------------------------------------------------------
 // POST /admin/webhooks/:id/enable — re-enable a disabled webhook endpoint
 // ---------------------------------------------------------------------------
-router.post("/admin/webhooks/:id/enable", requireAuth, async (req: Request, res: Response) => {
+router.post("/admin/webhooks/:id/enable", requireAuth, requirePermission("admin:*"), async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(req as any);
   const meta = () => apiMeta({ request_id: requestId });
 
   try {
     const session = (req as any).session;
-    if (!session || (session.role !== "owner" && session.role !== "admin")) {
-      return res.status(403).set("X-Response-Time", `${Date.now() - start}ms`).json(apiError("FORBIDDEN", "Admin access required", undefined, meta()));
+
+    // CSRF validation
+    const csrfCookie = req.cookies[CSRF_COOKIE_NAME];
+    const csrfHeader = (req.headers["x-csrf-token"] as string) ?? (req.headers["X-CSRF-Token"] as string);
+    if (!validateCsrf(csrfHeader, csrfCookie)) {
+      void logAudit({
+        accountId: session.accountId,
+        userId: session.userId,
+        action: "admin.csrf_failure",
+        resourceId: req.path,
+        ipAddress: (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "unknown",
+        severity: "warn",
+        outcome: "failure",
+      });
+      return res.status(403).json(apiError("FORBIDDEN", "Invalid or missing CSRF token.", undefined, meta()));
     }
 
     const { id } = req.params;
