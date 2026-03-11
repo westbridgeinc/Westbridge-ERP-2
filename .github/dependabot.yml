@@ -1,0 +1,53 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      production-deps:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@types/*"
+          - "eslint*"
+          - "@eslint/*"
+          - "@typescript-eslint/*"
+          - "vitest*"
+          - "supertest"
+          - "tsx"
+          - "typescript"
+          - "prisma"
+        update-types:
+          - minor
+          - patch
+      dev-deps:
+        patterns:
+          - "@types/*"
+          - "eslint*"
+          - "@eslint/*"
+          - "@typescript-eslint/*"
+          - "vitest*"
+          - "supertest"
+          - "tsx"
+          - "typescript"
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - docker
