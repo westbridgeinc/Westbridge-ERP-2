@@ -11,7 +11,7 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 COPY package.json package-lock.json* ./
-RUN npm install --ignore-scripts=false
+RUN npm install --legacy-peer-deps --ignore-scripts=false
 
 # Generate Prisma client
 COPY prisma ./prisma
@@ -34,7 +34,7 @@ RUN addgroup -g 1001 -S westbridge && \
 
 # Copy only production dependencies
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev --ignore-scripts=false && npm cache clean --force
+RUN npm install --legacy-peer-deps --omit=dev --ignore-scripts=false && npm cache clean --force
 
 # Copy Prisma schema and generated client
 COPY prisma ./prisma
