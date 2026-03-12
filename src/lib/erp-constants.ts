@@ -4,30 +4,58 @@
  * Add new doctypes here when expanding ERP module support.
  */
 export const ALLOWED_DOCTYPES = [
-  "Sales Invoice",
-  "Sales Order",
-  "Purchase Invoice",
-  "Purchase Order",
+  // ── Sales & CRM ──────────────────────────────────────────────────────────
   "Quotation",
+  "Sales Order",
+  "Sales Invoice",
   "Customer",
-  "Supplier",
-  "Item",
-  "Employee",
-  "Journal Entry",
-  "Payment Entry",
-  "Stock Entry",
-  "Expense Claim",
-  "Leave Application",
-  "Salary Slip",
-  "BOM",
-  "Company",
-  "Account",
-  "Warehouse",
+  "Lead",
   "Opportunity",
+  "Territory",
+
+  // ── Purchasing ───────────────────────────────────────────────────────────
+  "Purchase Order",
+  "Purchase Invoice",
+  "Purchase Receipt",
+  "Supplier",
+
+  // ── Inventory & Stock ────────────────────────────────────────────────────
+  "Item",
+  "Stock Entry",
+  "Warehouse",
+  "Stock Reconciliation",
+  "Delivery Note",
+  "Batch",
+  "Serial No",
+  "Quality Inspection",
+
+  // ── Accounting & Finance ─────────────────────────────────────────────────
+  "Journal Entry",
+  "Account",
+  "Payment Entry",
+  "GL Entry",
+  "Budget",
+  "Cost Center",
+  "Currency Exchange",
+  "Company",
+
+  // ── HR ───────────────────────────────────────────────────────────────────
+  "Employee",
+
+  // ── Manufacturing ────────────────────────────────────────────────────────
+  "Work Order",
+  "BOM",
+  "Workstation",
+  "Operation",
+
+  // ── Projects ─────────────────────────────────────────────────────────────
   "Project",
   "Task",
   "Timesheet",
-  "Attendance",
+
+  // ── Assets ───────────────────────────────────────────────────────────────
+  "Asset",
+  "Asset Category",
 ] as const;
 
 export type AllowedDoctype = (typeof ALLOWED_DOCTYPES)[number];
@@ -37,8 +65,22 @@ export const ALLOWED_DOCTYPES_SET = new Set<string>(ALLOWED_DOCTYPES);
 
 /** Doctypes that have a `company` field — used for tenant isolation checks. */
 export const COMPANY_SCOPED_DOCTYPES = new Set([
-  "Sales Invoice", "Sales Order", "Purchase Invoice", "Purchase Order",
-  "Quotation", "Journal Entry", "Payment Entry", "Stock Entry",
-  "Expense Claim", "Leave Application", "Salary Slip", "Employee",
-  "Project", "Task", "Timesheet", "Attendance",
+  // Sales & CRM
+  "Quotation", "Sales Order", "Sales Invoice", "Customer",
+  "Lead", "Opportunity",
+  // Purchasing
+  "Purchase Order", "Purchase Invoice", "Purchase Receipt", "Supplier",
+  // Inventory
+  "Stock Entry", "Stock Reconciliation", "Delivery Note",
+  "Quality Inspection",
+  // Accounting
+  "Journal Entry", "Payment Entry", "GL Entry", "Budget", "Cost Center",
+  // HR
+  "Employee",
+  // Manufacturing
+  "Work Order", "BOM",
+  // Projects
+  "Project", "Task", "Timesheet",
+  // Assets
+  "Asset",
 ]);
