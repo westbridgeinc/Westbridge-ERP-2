@@ -41,6 +41,10 @@ export const ALLOWED_DOCTYPES = [
 
   // ── HR ───────────────────────────────────────────────────────────────────
   "Employee",
+  "Expense Claim",
+  "Leave Application",
+  "Attendance",
+  "Salary Slip",
 
   // ── Manufacturing ────────────────────────────────────────────────────────
   "Work Order",
@@ -66,17 +70,17 @@ export const ALLOWED_DOCTYPES_SET = new Set<string>(ALLOWED_DOCTYPES);
 /** Doctypes that have a `company` field — used for tenant isolation checks. */
 export const COMPANY_SCOPED_DOCTYPES = new Set([
   // Sales & CRM
-  "Quotation", "Sales Order", "Sales Invoice", "Customer",
-  "Lead", "Opportunity",
+  "Quotation", "Sales Order", "Sales Invoice",
+  "Opportunity",
   // Purchasing
-  "Purchase Order", "Purchase Invoice", "Purchase Receipt", "Supplier",
+  "Purchase Order", "Purchase Invoice", "Purchase Receipt",
   // Inventory
   "Stock Entry", "Stock Reconciliation", "Delivery Note",
   "Quality Inspection",
   // Accounting
   "Journal Entry", "Payment Entry", "GL Entry", "Budget", "Cost Center",
   // HR
-  "Employee",
+  "Employee", "Expense Claim", "Leave Application", "Attendance", "Salary Slip",
   // Manufacturing
   "Work Order", "BOM",
   // Projects

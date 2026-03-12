@@ -71,7 +71,7 @@ router.patch("/account/profile", requireCsrf, async (req: Request, res: Response
 // ---------------------------------------------------------------------------
 // GET /account/export — GDPR right to data portability (Article 20)
 // ---------------------------------------------------------------------------
-router.post("/account/export", requireCsrf, async (req: Request, res: Response) => {
+router.get("/account/export", async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = getRequestId(toWebRequest(req));
   const meta = () => apiMeta({ request_id: requestId });

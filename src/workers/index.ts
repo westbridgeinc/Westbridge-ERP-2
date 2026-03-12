@@ -215,16 +215,33 @@ function createErpSyncWorker(): Worker {
   return new Worker<ErpSyncJobData>(
     "erp-sync",
     async (job: Job<ErpSyncJobData>) => {
-      const { accountId, doctype, name, erpnextSessionId } = job.data;
+      const { accountId, doctype, name } = job.data;
       logger.info("Processing ERP sync job", { jobId: job.id, accountId, doctype, name });
 
       try {
-        const result = await erpGet(doctype, name, erpnextSessionId, accountId);
+        // Find an active session for this account to use for ERPNext calls
+        const session = await prisma.session.findFirst({
+          where: {
+            user: { accountId },
+            expiresAt: { gt: new Date() },
+            erpnextSid: { not: null },
+          },
+          select: { erpnextSid: true },
+          orderBy: { createdAt: "desc" },
+        });
+
+        if (!session?.erpnextSid) {
+          logger.warn("ERP sync: no active ERPNext session found", { jobId: job.id, accountId });
+          return; // Skip — no session available to call ERPNext
+        }
+
+        const sid = decrypt(session.erpnextSid);
+        const result = await erpGet(doctype, name, sid, accountId);
 
         if (result.ok) {
-          logger.info("ERP document synced", { jobId: job.id, accountId, doctype, name });
+          logger.info("ERP document verified", { jobId: job.id, accountId, doctype, name });
         } else {
-          logger.error("ERP sync failed: document fetch error", { jobId: job.id, accountId, doctype, name, error: result.error });
+          logger.error("ERP sync: document not found", { jobId: job.id, accountId, doctype, name, error: result.error });
           throw new Error(result.error);
         }
       } catch (err) {

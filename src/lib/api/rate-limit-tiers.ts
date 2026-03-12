@@ -17,25 +17,26 @@ const TIER_LIMITS: Record<RateLimitTier, number> = {
 
 /** Per-endpoint overrides (requests per window). */
 const ENDPOINT_OVERRIDES: Record<string, number> = {
-  "/api/auth/login": 10,
-  "/api/auth/forgot-password": 5,
-  "/api/auth/reset-password": 5,
-  "/api/invite/accept": 10,
-  "/api/signup": 5,
-  "/api/invite": 10,
-  "/api/invite:get": 20,
-  "/api/account/profile": 10,
-  "/api/erp/list": 60,
-  "/api/erp/doc": 60,
-  "/api/erp/dashboard": 30,
-  "/api/team": 30,
-  "/api/usage": 30,
-  "/api/analytics/vitals": 30,
-  "/api/analytics/track": 60,
-  "/api/ai/chat": 30,
-  "/api/audit/export": 5,
-  "/api/auth/change-password": 5,
-  "/api/webhooks/2checkout": 100,
+  "/api/auth/login": 20,
+  "/api/auth/forgot-password": 10,
+  "/api/auth/reset-password": 10,
+  "/api/invite/accept": 20,
+  "/api/signup": 15,
+  "/api/invite": 20,
+  "/api/invite:get": 40,
+  "/api/account/profile": 20,
+  "/api/erp/list": 200,
+  "/api/erp/doc": 120,
+  "/api/erp/dashboard": 60,
+  "/api/team": 60,
+  "/api/usage": 60,
+  "/api/analytics/vitals": 60,
+  "/api/analytics/track": 120,
+  "/api/ai/chat": 60,
+  "/api/audit/export": 20,
+  "/api/account/export": 20,
+  "/api/auth/change-password": 10,
+  "/api/webhooks/2checkout": 200,
 };
 
 /** Per-endpoint window in ms (default 60_000). */
@@ -165,8 +166,8 @@ export async function checkEmailRateLimit(email: string): Promise<RateLimitResul
   }
 }
 
-/** Per-account ERP limit: 200 requests per minute (prevents single tenant DDoSing shared ERPNext). */
-const ERP_ACCOUNT_LIMIT = 200;
+/** Per-account ERP limit: 500 requests per minute (prevents single tenant DDoSing shared ERPNext). */
+const ERP_ACCOUNT_LIMIT = 500;
 const ERP_ACCOUNT_WINDOW_MS = 60_000;
 
 export async function checkErpAccountRateLimit(accountId: string): Promise<RateLimitResult> {

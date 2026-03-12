@@ -125,12 +125,18 @@ router.get("/usage", requireAuth, async (req: Request, res: Response) => {
 // GET /docs — serves the OpenAPI 3.1 JSON spec
 // ---------------------------------------------------------------------------
 router.get("/docs", async (_req: Request, res: Response) => {
-  const { generateOpenApiSpec } = await import("../lib/api/openapi.js");
-  const spec = generateOpenApiSpec();
-  return res
-    .set("Content-Type", "application/json")
-    .set("Cache-Control", "public, max-age=300")
-    .json(spec);
+  try {
+    const { generateOpenApiSpec } = await import("../lib/api/openapi.js");
+    const spec = generateOpenApiSpec();
+    return res
+      .set("Content-Type", "application/json")
+      .set("Cache-Control", "public, max-age=300")
+      .json(spec);
+  } catch (error) {
+    const { logger } = await import("../lib/logger.js");
+    logger.error("Failed to generate OpenAPI spec", { error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to generate API documentation" } });
+  }
 });
 
 export default router;

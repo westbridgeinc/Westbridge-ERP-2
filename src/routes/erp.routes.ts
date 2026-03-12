@@ -194,10 +194,11 @@ router.get("/erp/doc", requireAuth, async (req: Request, res: Response) => {
 
     const result = await getDoc(doctype, name, session.erpnextSid as string, session.accountId);
     if (!result.ok) {
-      const status = result.error === "Not found" ? 404 : 502;
+      const isNotFound = /not found|404|does not exist/i.test(result.error);
+      const status = isNotFound ? 404 : 502;
       res.set(responseHeaders());
       return res.status(status).json(
-        apiError("ERP_ERROR", result.error, undefined, meta())
+        apiError(isNotFound ? "NOT_FOUND" : "ERP_ERROR", result.error, undefined, meta())
       );
     }
 
@@ -290,9 +291,13 @@ router.post("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Resp
     }
     const result = await createDoc(doctype, session.erpnextSid as string, data as Record<string, unknown>, session.accountId);
     if (!result.ok) {
+      // Map ERPNext error codes to appropriate HTTP status codes
+      const isValidation = /mandatory|required|duplicate|already exists|unique|cannot|invalid|missing/i.test(result.error);
+      const isConflict = /duplicate|already exists|unique/i.test(result.error);
+      const status = isConflict ? 409 : isValidation ? 422 : 502;
       res.set(responseHeaders());
-      return res.status(502).json(
-        apiError("ERP_ERROR", result.error, undefined, meta())
+      return res.status(status).json(
+        apiError(isConflict ? "CONFLICT" : isValidation ? "VALIDATION_ERROR" : "ERP_ERROR", result.error, undefined, meta())
       );
     }
     const created = result.data as { name?: string };
@@ -400,9 +405,11 @@ router.put("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Respo
 
     const result = await updateDoc(doctype, name, session.erpnextSid as string, data as Record<string, unknown>, session.accountId);
     if (!result.ok) {
+      const isNotFound = /not found|404|does not exist/i.test(result.error);
+      const status = isNotFound ? 404 : 502;
       res.set(responseHeaders());
-      return res.status(502).json(
-        apiError("ERP_ERROR", result.error, undefined, meta())
+      return res.status(status).json(
+        apiError(isNotFound ? "NOT_FOUND" : "ERP_ERROR", result.error, undefined, meta())
       );
     }
     void logAudit({
@@ -490,9 +497,11 @@ router.delete("/erp/doc", requireAuth, requireCsrf, async (req: Request, res: Re
 
     const result = await deleteDoc(doctype, name, session.erpnextSid as string, session.accountId);
     if (!result.ok) {
+      const isNotFound = /not found|404|does not exist/i.test(result.error);
+      const status = isNotFound ? 404 : 502;
       res.set(responseHeaders());
-      return res.status(502).json(
-        apiError("ERP_ERROR", result.error, undefined, meta())
+      return res.status(status).json(
+        apiError(isNotFound ? "NOT_FOUND" : "ERP_ERROR", result.error, undefined, meta())
       );
     }
     void logAudit({

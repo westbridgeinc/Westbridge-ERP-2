@@ -46,17 +46,15 @@ async function saveHistory(id: string, messages: Anthropic.MessageParam[]): Prom
 // POST /ai/chat — send a message to the AI assistant
 // ---------------------------------------------------------------------------
 router.post("/ai/chat", async (req: Request, res: Response) => {
-  // Degrade gracefully when the API key is not configured
-  if (!anthropic) {
-    return res.status(200).json({
-      data: {
-        reply: "AI is not configured on this plan yet.",
-        conversationId: null,
-        usage: { queries: 0, remaining: null },
-      },
-    });
+  // Validate request body early — reject malformed requests regardless of
+  // whether AI is configured (prevents returning 200 for garbage input).
+  const parsed = chatSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: { code: "INVALID_REQUEST", message: "A non-empty 'message' field is required." } });
   }
 
+  // Authentication — must come before the `!anthropic` graceful degrade so that
+  // unauthenticated callers always receive 401, not a 200 "not configured" response.
   const token = req.cookies?.[COOKIE.SESSION_NAME];
   if (!token) {
     return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
@@ -74,6 +72,17 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
     return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
   }
   const session = sessionResult.data;
+
+  // Degrade gracefully when the API key is not configured (after auth check)
+  if (!anthropic) {
+    return res.status(200).json({
+      data: {
+        reply: "AI is not configured on this plan yet.",
+        conversationId: null,
+        usage: { queries: 0, remaining: null },
+      },
+    });
+  }
 
   const rateLimit = await checkTieredRateLimit(session.userId, "authenticated", "/api/ai/chat");
   if (!rateLimit.allowed) {
@@ -106,12 +115,6 @@ router.post("/ai/chat", async (req: Request, res: Response) => {
       error: { code: "AI_LIMIT_REACHED", message: limitCheck.reason },
       usage: limitCheck.usage,
     });
-  }
-
-  const body = req.body;
-  const parsed = chatSchema.safeParse(body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: { code: "INVALID_REQUEST" } });
   }
 
   const { message, module: rawModule, conversationId = crypto.randomUUID() } = parsed.data;

@@ -10,6 +10,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Platform Models (Auth, Billing, Audit)
+// ═══════════════════════════════════════════════════════════════════════════════
+
 model Account {
   id               String    @id @default(cuid())
   email            String    @unique
@@ -70,16 +74,16 @@ model User {
 }
 
 model Session {
-  id          String   @id @default(cuid())
-  userId      String   @map("user_id")
-  token       String   @unique // SHA-256 hash of the raw token
-  erpnextSid  String?  @map("erpnext_sid") // ERPNext session for API proxy
-  ipAddress   String?  @map("ip_address") /// @pii - Personal Identifiable Information
-  userAgent   String?  @map("user_agent") /// @pii - Personal Identifiable Information
-  fingerprint String?  // hash of User-Agent for session binding
-  expiresAt   DateTime @map("expires_at")
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  token        String   @unique // SHA-256 hash of the raw token
+  erpnextSid   String?  @map("erpnext_sid") // ERPNext session for API proxy
+  ipAddress    String?  @map("ip_address") /// @pii - Personal Identifiable Information
+  userAgent    String?  @map("user_agent") /// @pii - Personal Identifiable Information
+  fingerprint  String?  // hash of User-Agent for session binding
+  expiresAt    DateTime @map("expires_at")
   lastActiveAt DateTime @default(now()) @map("last_active_at")
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -195,4 +199,683 @@ model WebhookEndpoint {
 
   @@index([accountId])
   @@map("webhook_endpoints")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ERP Document Models — local data (replaces ERPNext dependency)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/// Auto-naming counter — generates sequential IDs like "SI-00042"
+model DocNameCounter {
+  id        String @id @default(cuid())
+  doctype   String @unique
+  prefix    String
+  counter   Int    @default(0)
+
+  @@map("doc_name_counters")
+}
+
+// ─── Sales & CRM ─────────────────────────────────────────────────────────────
+
+model Customer {
+  name             String   @id // e.g. "CUST-00001"
+  accountId        String   @map("account_id")
+  customerName     String   @map("customer_name")
+  customerType     String?  @map("customer_type")   // Company | Individual
+  customerGroup    String?  @map("customer_group")
+  territory        String?
+  defaultCurrency  String?  @map("default_currency")
+  taxId            String?  @map("tax_id")
+  emailId          String?  @map("email_id")
+  mobileNo         String?  @map("mobile_no")
+  company          String?
+  owner            String   @default("System")
+  docstatus        Int      @default(0)
+  creation         DateTime @default(now())
+  modified         DateTime @updatedAt
+
+  salesInvoices    SalesInvoice[]
+  salesOrders      SalesOrder[]
+  quotations       Quotation[]
+
+  @@index([accountId])
+  @@index([accountId, customerName])
+  @@map("erp_customers")
+}
+
+model Supplier {
+  name             String   @id // e.g. "SUP-00001"
+  accountId        String   @map("account_id")
+  supplierName     String   @map("supplier_name")
+  supplierType     String?  @map("supplier_type")
+  supplierGroup    String?  @map("supplier_group")
+  country          String?
+  defaultCurrency  String?  @map("default_currency")
+  taxId            String?  @map("tax_id")
+  emailId          String?  @map("email_id")
+  mobileNo         String?  @map("mobile_no")
+  company          String?
+  owner            String   @default("System")
+  docstatus        Int      @default(0)
+  creation         DateTime @default(now())
+  modified         DateTime @updatedAt
+
+  purchaseOrders   PurchaseOrder[]
+  purchaseInvoices PurchaseInvoice[]
+
+  @@index([accountId])
+  @@index([accountId, supplierName])
+  @@map("erp_suppliers")
+}
+
+model Lead {
+  name            String   @id
+  accountId       String   @map("account_id")
+  leadName        String   @map("lead_name")
+  companyName     String?  @map("company_name")
+  emailId         String?  @map("email_id")
+  mobileNo        String?  @map("mobile_no")
+  source          String?
+  status          String   @default("Open")
+  territory       String?
+  company         String?
+  owner           String   @default("System")
+  docstatus       Int      @default(0)
+  creation        DateTime @default(now())
+  modified        DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_leads")
+}
+
+model Opportunity {
+  name              String   @id
+  accountId         String   @map("account_id")
+  partyName         String?  @map("party_name")
+  opportunityFrom   String?  @map("opportunity_from")  // Lead | Customer
+  opportunityAmount Float?   @map("opportunity_amount")
+  status            String   @default("Open")
+  contactPerson     String?  @map("contact_person")
+  contactDisplay    String?  @map("contact_display")
+  currency          String?
+  company           String?
+  owner             String   @default("System")
+  docstatus         Int      @default(0)
+  creation          DateTime @default(now())
+  modified          DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_opportunities")
+}
+
+// ─── Transactions ────────────────────────────────────────────────────────────
+
+model SalesInvoice {
+  name              String   @id // e.g. "SI-00001"
+  accountId         String   @map("account_id")
+  customer          String?
+  customerName      String?  @map("customer_name")
+  postingDate       DateTime @map("posting_date") @db.Date
+  dueDate           DateTime? @map("due_date") @db.Date
+  currency          String   @default("GYD")
+  grandTotal        Float    @default(0) @map("grand_total")
+  netTotal          Float    @default(0) @map("net_total")
+  outstandingAmount Float    @default(0) @map("outstanding_amount")
+  status            String   @default("Draft")
+  docstatus         Int      @default(0)
+  company           String?
+  owner             String   @default("System")
+  creation          DateTime @default(now())
+  modified          DateTime @updatedAt
+
+  customerRef       Customer? @relation(fields: [customer], references: [name])
+  items             SalesInvoiceItem[]
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@index([accountId, postingDate])
+  @@map("erp_sales_invoices")
+}
+
+model SalesInvoiceItem {
+  id           String  @id @default(cuid())
+  parent       String
+  itemCode     String? @map("item_code")
+  itemName     String? @map("item_name")
+  itemGroup    String? @map("item_group")
+  qty          Float   @default(0)
+  rate         Float   @default(0)
+  amount       Float   @default(0)
+
+  invoice      SalesInvoice @relation(fields: [parent], references: [name], onDelete: Cascade)
+
+  @@index([parent])
+  @@map("erp_sales_invoice_items")
+}
+
+model SalesOrder {
+  name             String   @id
+  accountId        String   @map("account_id")
+  customer         String?
+  customerName     String?  @map("customer_name")
+  transactionDate  DateTime @map("transaction_date") @db.Date
+  deliveryDate     DateTime? @map("delivery_date") @db.Date
+  currency         String   @default("GYD")
+  grandTotal       Float    @default(0) @map("grand_total")
+  netTotal         Float    @default(0) @map("net_total")
+  status           String   @default("Draft")
+  docstatus        Int      @default(0)
+  company          String?
+  owner            String   @default("System")
+  creation         DateTime @default(now())
+  modified         DateTime @updatedAt
+
+  customerRef      Customer? @relation(fields: [customer], references: [name])
+  items            SalesOrderItem[]
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_sales_orders")
+}
+
+model SalesOrderItem {
+  id       String  @id @default(cuid())
+  parent   String
+  itemCode String? @map("item_code")
+  itemName String? @map("item_name")
+  qty      Float   @default(0)
+  rate     Float   @default(0)
+  amount   Float   @default(0)
+
+  order    SalesOrder @relation(fields: [parent], references: [name], onDelete: Cascade)
+
+  @@index([parent])
+  @@map("erp_sales_order_items")
+}
+
+model Quotation {
+  name             String   @id
+  accountId        String   @map("account_id")
+  partyName        String?  @map("party_name")
+  customerName     String?  @map("customer_name")
+  transactionDate  DateTime @map("transaction_date") @db.Date
+  validTill        DateTime? @map("valid_till") @db.Date
+  currency         String   @default("GYD")
+  grandTotal       Float    @default(0) @map("grand_total")
+  netTotal         Float    @default(0) @map("net_total")
+  status           String   @default("Draft")
+  docstatus        Int      @default(0)
+  company          String?
+  owner            String   @default("System")
+  creation         DateTime @default(now())
+  modified         DateTime @updatedAt
+
+  customerRef      Customer? @relation(fields: [partyName], references: [name])
+  items            QuotationItem[]
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_quotations")
+}
+
+model QuotationItem {
+  id       String  @id @default(cuid())
+  parent   String
+  itemCode String? @map("item_code")
+  itemName String? @map("item_name")
+  qty      Float   @default(0)
+  rate     Float   @default(0)
+  amount   Float   @default(0)
+
+  quotation Quotation @relation(fields: [parent], references: [name], onDelete: Cascade)
+
+  @@index([parent])
+  @@map("erp_quotation_items")
+}
+
+// ─── Purchasing ──────────────────────────────────────────────────────────────
+
+model PurchaseOrder {
+  name             String   @id
+  accountId        String   @map("account_id")
+  supplier         String?
+  supplierName     String?  @map("supplier_name")
+  transactionDate  DateTime @map("transaction_date") @db.Date
+  scheduleDate     DateTime? @map("schedule_date") @db.Date
+  currency         String   @default("GYD")
+  grandTotal       Float    @default(0) @map("grand_total")
+  netTotal         Float    @default(0) @map("net_total")
+  status           String   @default("Draft")
+  docstatus        Int      @default(0)
+  company          String?
+  owner            String   @default("System")
+  creation         DateTime @default(now())
+  modified         DateTime @updatedAt
+
+  supplierRef      Supplier? @relation(fields: [supplier], references: [name])
+  items            PurchaseOrderItem[]
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id       String  @id @default(cuid())
+  parent   String
+  itemCode String? @map("item_code")
+  itemName String? @map("item_name")
+  qty      Float   @default(0)
+  rate     Float   @default(0)
+  amount   Float   @default(0)
+
+  order    PurchaseOrder @relation(fields: [parent], references: [name], onDelete: Cascade)
+
+  @@index([parent])
+  @@map("erp_purchase_order_items")
+}
+
+model PurchaseInvoice {
+  name              String   @id
+  accountId         String   @map("account_id")
+  supplier          String?
+  supplierName      String?  @map("supplier_name")
+  postingDate       DateTime @map("posting_date") @db.Date
+  dueDate           DateTime? @map("due_date") @db.Date
+  currency          String   @default("GYD")
+  grandTotal        Float    @default(0) @map("grand_total")
+  netTotal          Float    @default(0) @map("net_total")
+  outstandingAmount Float    @default(0) @map("outstanding_amount")
+  status            String   @default("Draft")
+  docstatus         Int      @default(0)
+  company           String?
+  owner             String   @default("System")
+  creation          DateTime @default(now())
+  modified          DateTime @updatedAt
+
+  supplierRef       Supplier? @relation(fields: [supplier], references: [name])
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@index([accountId, postingDate])
+  @@map("erp_purchase_invoices")
+}
+
+model PurchaseReceipt {
+  name              String   @id
+  accountId         String   @map("account_id")
+  supplier          String?
+  supplierName      String?  @map("supplier_name")
+  postingDate       DateTime @map("posting_date") @db.Date
+  currency          String   @default("GYD")
+  grandTotal        Float    @default(0) @map("grand_total")
+  status            String   @default("Draft")
+  docstatus         Int      @default(0)
+  company           String?
+  owner             String   @default("System")
+  creation          DateTime @default(now())
+  modified          DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("erp_purchase_receipts")
+}
+
+// ─── Inventory & Stock ───────────────────────────────────────────────────────
+
+model Item {
+  name              String   @id // e.g. "ITEM-00001"
+  accountId         String   @map("account_id")
+  itemCode          String   @map("item_code")
+  itemName          String   @map("item_name")
+  itemGroup         String?  @map("item_group")
+  stockUom          String?  @map("stock_uom")
+  description       String?
+  valuationRate     Float?   @map("valuation_rate")
+  defaultWarehouse  String?  @map("default_warehouse")
+  totalProjectedQty Float?   @map("total_projected_qty")
+  owner             String   @default("System")
+  docstatus         Int      @default(0)
+  creation          DateTime @default(now())
+  modified          DateTime @updatedAt
+
+  @@unique([accountId, itemCode])
+  @@index([accountId])
+  @@index([accountId, itemGroup])
+  @@map("erp_items")
+}
+
+model StockEntry {
+  name           String   @id
+  accountId      String   @map("account_id")
+  stockEntryType String?  @map("stock_entry_type")
+  postingDate    DateTime @map("posting_date") @db.Date
+  fromWarehouse  String?  @map("from_warehouse")
+  toWarehouse    String?  @map("to_warehouse")
+  totalAmount    Float    @default(0) @map("total_amount")
+  status         String   @default("Draft")
+  docstatus      Int      @default(0)
+  company        String?
+  owner          String   @default("System")
+  creation       DateTime @default(now())
+  modified       DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("erp_stock_entries")
+}
+
+model Warehouse {
+  name          String   @id
+  accountId     String   @map("account_id")
+  warehouseName String   @map("warehouse_name")
+  warehouseType String?  @map("warehouse_type")
+  company       String?
+  isGroup       Int      @default(0) @map("is_group")
+  parentWarehouse String? @map("parent_warehouse")
+  owner         String   @default("System")
+  creation      DateTime @default(now())
+  modified      DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("erp_warehouses")
+}
+
+model DeliveryNote {
+  name           String   @id
+  accountId      String   @map("account_id")
+  customer       String?
+  customerName   String?  @map("customer_name")
+  postingDate    DateTime @map("posting_date") @db.Date
+  grandTotal     Float    @default(0) @map("grand_total")
+  status         String   @default("Draft")
+  docstatus      Int      @default(0)
+  company        String?
+  owner          String   @default("System")
+  creation       DateTime @default(now())
+  modified       DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("erp_delivery_notes")
+}
+
+// ─── Accounting & Finance ────────────────────────────────────────────────────
+
+model JournalEntry {
+  name           String   @id
+  accountId      String   @map("account_id")
+  postingDate    DateTime @map("posting_date") @db.Date
+  voucherType    String?  @map("voucher_type")
+  totalDebit     Float    @default(0) @map("total_debit")
+  totalCredit    Float    @default(0) @map("total_credit")
+  remark         String?
+  status         String   @default("Draft")
+  docstatus      Int      @default(0)
+  company        String?
+  owner          String   @default("System")
+  creation       DateTime @default(now())
+  modified       DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([accountId, postingDate])
+  @@map("erp_journal_entries")
+}
+
+model ErpAccount {
+  name          String   @id
+  accountId     String   @map("account_id")
+  accountName   String   @map("account_name")
+  parentAccount String?  @map("parent_account")
+  rootType      String?  @map("root_type")     // Asset | Liability | Income | Expense | Equity
+  accountType   String?  @map("account_type")
+  isGroup       Int      @default(0) @map("is_group")
+  company       String?
+  balance       Float    @default(0)
+  owner         String   @default("System")
+  creation      DateTime @default(now())
+  modified      DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("erp_accounts")
+}
+
+model PaymentEntry {
+  name           String   @id
+  accountId      String   @map("account_id")
+  postingDate    DateTime @map("posting_date") @db.Date
+  paymentType    String?  @map("payment_type") // Receive | Pay | Internal Transfer
+  party          String?
+  partyName      String?  @map("party_name")
+  partyType      String?  @map("party_type")
+  paidAmount     Float    @default(0) @map("paid_amount")
+  modeOfPayment  String?  @map("mode_of_payment")
+  referenceNo    String?  @map("reference_no")
+  status         String   @default("Draft")
+  docstatus      Int      @default(0)
+  company        String?
+  owner          String   @default("System")
+  creation       DateTime @default(now())
+  modified       DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([accountId, postingDate])
+  @@map("erp_payment_entries")
+}
+
+model CostCenter {
+  name            String   @id
+  accountId       String   @map("account_id")
+  costCenterName  String   @map("cost_center_name")
+  parentCostCenter String? @map("parent_cost_center")
+  isGroup         Int      @default(0) @map("is_group")
+  company         String?
+  owner           String   @default("System")
+  creation        DateTime @default(now())
+  modified        DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("erp_cost_centers")
+}
+
+// ─── HR ──────────────────────────────────────────────────────────────────────
+
+model Employee {
+  name            String   @id
+  accountId       String   @map("account_id")
+  employeeName    String   @map("employee_name")
+  company         String?
+  department      String?
+  designation     String?
+  dateOfJoining   DateTime? @map("date_of_joining") @db.Date
+  gender          String?
+  dateOfBirth     DateTime? @map("date_of_birth") @db.Date
+  status          String   @default("Active")
+  owner           String   @default("System")
+  creation        DateTime @default(now())
+  modified        DateTime @updatedAt
+
+  expenseClaims   ExpenseClaim[]
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_employees")
+}
+
+model ExpenseClaim {
+  name                   String   @id
+  accountId              String   @map("account_id")
+  employee               String?
+  employeeName           String?  @map("employee_name")
+  postingDate            DateTime @map("posting_date") @db.Date
+  expenseType            String?  @map("expense_type")
+  totalClaimedAmount     Float    @default(0) @map("total_claimed_amount")
+  totalSanctionedAmount  Float    @default(0) @map("total_sanctioned_amount")
+  grandTotal             Float    @default(0) @map("grand_total")
+  remark                 String?
+  status                 String   @default("Draft")
+  docstatus              Int      @default(0)
+  company                String?
+  owner                  String   @default("System")
+  creation               DateTime @default(now())
+  modified               DateTime @updatedAt
+
+  employeeRef            Employee? @relation(fields: [employee], references: [name])
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_expense_claims")
+}
+
+// ─── Manufacturing ───────────────────────────────────────────────────────────
+
+model WorkOrder {
+  name            String   @id
+  accountId       String   @map("account_id")
+  productionItem  String?  @map("production_item")
+  itemName        String?  @map("item_name")
+  bom             String?  @map("bom_no")
+  qty             Float    @default(0)
+  producedQty     Float    @default(0) @map("produced_qty")
+  plannedStartDate DateTime? @map("planned_start_date") @db.Date
+  status          String   @default("Draft")
+  docstatus       Int      @default(0)
+  company         String?
+  owner           String   @default("System")
+  creation        DateTime @default(now())
+  modified        DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_work_orders")
+}
+
+model Bom {
+  name          String   @id
+  accountId     String   @map("account_id")
+  item          String?
+  itemName      String?  @map("item_name")
+  quantity      Float    @default(1)
+  isActive      Int      @default(1) @map("is_active")
+  isDefault     Int      @default(0) @map("is_default")
+  totalCost     Float    @default(0) @map("total_cost")
+  company       String?
+  owner         String   @default("System")
+  docstatus     Int      @default(0)
+  creation      DateTime @default(now())
+  modified      DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("erp_boms")
+}
+
+model Workstation {
+  name              String   @id
+  accountId         String   @map("account_id")
+  workstationName   String   @map("workstation_name")
+  workstationType   String?  @map("workstation_type")
+  productionCapacity Float?  @map("production_capacity")
+  description       String?
+  owner             String   @default("System")
+  creation          DateTime @default(now())
+  modified          DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("erp_workstations")
+}
+
+// ─── Projects ────────────────────────────────────────────────────────────────
+
+model Project {
+  name            String   @id
+  accountId       String   @map("account_id")
+  projectName     String   @map("project_name")
+  status          String   @default("Open")
+  percentComplete Float    @default(0) @map("percent_complete")
+  expectedStartDate DateTime? @map("expected_start_date") @db.Date
+  expectedEndDate DateTime? @map("expected_end_date") @db.Date
+  company         String?
+  owner           String   @default("System")
+  creation        DateTime @default(now())
+  modified        DateTime @updatedAt
+
+  tasks           Task[]
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_projects")
+}
+
+model Task {
+  name          String   @id
+  accountId     String   @map("account_id")
+  subject       String
+  project       String?
+  status        String   @default("Open")
+  priority      String?  @default("Medium")
+  assignedTo    String?  @map("assigned_to")
+  expEndDate    DateTime? @map("exp_end_date") @db.Date
+  company       String?
+  owner         String   @default("System")
+  creation      DateTime @default(now())
+  modified      DateTime @updatedAt
+
+  projectRef    Project? @relation(fields: [project], references: [name])
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_tasks")
+}
+
+model Timesheet {
+  name          String   @id
+  accountId     String   @map("account_id")
+  employee      String?
+  employeeName  String?  @map("employee_name")
+  startDate     DateTime? @map("start_date") @db.Date
+  endDate       DateTime? @map("end_date") @db.Date
+  totalHours    Float    @default(0) @map("total_hours")
+  status        String   @default("Draft")
+  docstatus     Int      @default(0)
+  company       String?
+  owner         String   @default("System")
+  creation      DateTime @default(now())
+  modified      DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("erp_timesheets")
+}
+
+// ─── Assets ──────────────────────────────────────────────────────────────────
+
+model Asset {
+  name            String   @id
+  accountId       String   @map("account_id")
+  assetName       String   @map("asset_name")
+  assetCategory   String?  @map("asset_category")
+  itemCode        String?  @map("item_code")
+  grossPurchaseAmount Float? @map("gross_purchase_amount")
+  purchaseDate    DateTime? @map("purchase_date") @db.Date
+  location        String?
+  status          String   @default("Draft")
+  docstatus       Int      @default(0)
+  company         String?
+  owner           String   @default("System")
+  creation        DateTime @default(now())
+  modified        DateTime @updatedAt
+
+  @@index([accountId])
+  @@index([accountId, status])
+  @@map("erp_assets")
+}
+
+model AssetCategory {
+  name              String   @id
+  accountId         String   @map("account_id")
+  assetCategoryName String   @map("asset_category_name")
+  owner             String   @default("System")
+  creation          DateTime @default(now())
+  modified          DateTime @updatedAt
+
+  @@index([accountId])
+  @@map("erp_asset_categories")
 }

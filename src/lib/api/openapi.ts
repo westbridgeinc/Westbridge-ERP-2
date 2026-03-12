@@ -3,8 +3,11 @@
  * Generates the spec from registered route schemas using @asteasolutions/zod-to-openapi.
  * Served at GET /api/docs.
  */
-import { OpenAPIRegistry, OpenApiGeneratorV31 } from "@asteasolutions/zod-to-openapi";
+import { OpenAPIRegistry, OpenApiGeneratorV31, extendZodWithOpenApi } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+
+// Must be called before registering any schemas — extends z.ZodType with .openapi() method
+extendZodWithOpenApi(z);
 
 export const registry = new OpenAPIRegistry();
 

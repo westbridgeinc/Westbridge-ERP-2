@@ -99,7 +99,16 @@ export function createApp(): express.Application {
 
   // ─── Error Handler ─────────────────────────────────────────────────────────
 
-  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  app.use((err: Error & { status?: number; type?: string; statusCode?: number }, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    // Express body-parser errors (e.g. PayloadTooLargeError, SyntaxError)
+    const httpStatus = err.status ?? err.statusCode;
+    if (httpStatus === 413 || err.type === "entity.too.large") {
+      return res.status(413).json({ ok: false, error: { code: "PAYLOAD_TOO_LARGE", message: "Request body exceeds the 1 MB limit" } });
+    }
+    if (httpStatus === 400 || err.type === "entity.parse.failed") {
+      return res.status(400).json({ ok: false, error: { code: "BAD_REQUEST", message: "Malformed request body" } });
+    }
+
     logger.error("Unhandled error", { error: err.message, stack: err.stack });
     res.status(500).json({ ok: false, error: { code: "SERVER_ERROR", message: "Internal server error" } });
   });

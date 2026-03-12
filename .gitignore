@@ -1,9 +1,36 @@
+# dependencies
 node_modules/
+
+# build output
 dist/
+
+# env files — never commit real secrets
 .env
 .env.local
 .env.production
 !.env.example
 !.env.production.example
+
+# testing
+coverage/
+test-results/
+
+# logs
 *.log
+npm-debug.log*
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# misc
+*.pem

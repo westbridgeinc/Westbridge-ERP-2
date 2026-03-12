@@ -28,6 +28,15 @@ const ERPNEXT_URL = (() => {
 
 const ACCOUNT_HEADER = "X-Westbridge-Account-Id";
 
+/**
+ * Strip control characters (U+0000–U+001F, excluding tab/newline/CR) from
+ * ERPNext document names. Some ERPNext records contain stray control chars
+ * that cause single-doc GET requests to fail with 502.
+ */
+function sanitizeName(raw: string): string {
+  return raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+}
+
 const RETRYABLE_STATUSES = new Set([502, 503, 429]);
 const MAX_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 500;
@@ -139,7 +148,18 @@ export async function erpList(
   const result = await fetchErp(`/resource/${encodeURIComponent(doctype)}?${query}`, sessionId, undefined, accountId);
   if (!result.ok) return err(result.error);
   const body = result.data as { data?: unknown[] };
-  return ok(Array.isArray(body?.data) ? body.data : []);
+  const data = Array.isArray(body?.data) ? body.data : [];
+  // Strip control characters from `name` fields so the frontend never
+  // receives corrupted names that would cause 502 on single-doc GET.
+  for (const item of data) {
+    if (item && typeof item === "object" && "name" in item) {
+      const record = item as Record<string, unknown>;
+      if (typeof record.name === "string") {
+        record.name = sanitizeName(record.name);
+      }
+    }
+  }
+  return ok(data);
 }
 
 export async function erpGet(
@@ -148,8 +168,9 @@ export async function erpGet(
   sessionId: string,
   accountId?: string
 ): Promise<Result<unknown, string>> {
+  const cleanName = sanitizeName(name);
   const result = await fetchErp(
-    `/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`,
+    `/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(cleanName)}`,
     sessionId,
     undefined,
     accountId
