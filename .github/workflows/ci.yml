@@ -43,7 +43,7 @@ jobs:
       - run: npx prisma generate
       - name: Run tests with coverage thresholds
         run: npm test -- --coverage --reporter=verbose
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-report
