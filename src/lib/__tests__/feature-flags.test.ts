@@ -101,7 +101,7 @@ describe("feature-flags", () => {
   describe("setFlag", () => {
     it("stores flag in redis", async () => {
       mockRedis.set.mockResolvedValue("OK");
-      await setFlag({ key: "test", defaultValue: true, rules: [] });
+      await setFlag({ key: "test", defaultValue: true, description: "test flag", rules: [] });
       expect(mockRedis.set).toHaveBeenCalledWith("flags:test", expect.any(String));
     });
   });

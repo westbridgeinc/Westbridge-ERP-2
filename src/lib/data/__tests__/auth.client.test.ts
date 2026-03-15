@@ -16,7 +16,7 @@ describe("auth.client — erpLogin", () => {
     const { erpLogin } = await import("../auth.client.js");
     const result = await erpLogin("test@test.com", "password");
     expect(result.ok).toBe(true);
-    expect(result.data).toBe("abc123");
+    if (result.ok) expect(result.data).toBe("abc123");
   });
 
   it("returns error on non-ok response", async () => {
@@ -47,6 +47,6 @@ describe("auth.client — erpLogin", () => {
     const { erpLogin } = await import("../auth.client.js");
     const result = await erpLogin("test@test.com", "password");
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("ECONNREFUSED");
+    if (!result.ok) expect(result.error).toContain("ECONNREFUSED");
   });
 });

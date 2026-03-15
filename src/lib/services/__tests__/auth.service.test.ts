@@ -74,7 +74,7 @@ describe("auth.service", () => {
       vi.mocked(erpLogin).mockResolvedValue({ ok: true, data: "session-id" });
       const result = await login("test@test.com", "password123");
       expect(result.ok).toBe(true);
-      expect(result.data).toBe("session-id");
+      if (result.ok) expect(result.data).toBe("session-id");
     });
 
     it("returns error on ERPNext failure (production)", async () => {
