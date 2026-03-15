@@ -44,7 +44,7 @@ describe("invite.service", () => {
     it("creates invite and sends email on success", async () => {
       vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
       vi.mocked(prisma.$transaction).mockResolvedValue({ id: "inv1" } as never);
-      vi.mocked(sendEmail).mockResolvedValue({ ok: true, data: "sent" });
+      vi.mocked(sendEmail).mockResolvedValue({ ok: true, data: { id: "sent" } });
       const r = await createInvite({
         accountId: "acc1",
         email: "new@test.com",
