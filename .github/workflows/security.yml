@@ -64,7 +64,7 @@ jobs:
           node-version: 20
       - run: npm ci --legacy-peer-deps
       - name: Generate CycloneDX SBOM
-        run: npx @cyclonedx/cyclonedx-npm --output-file sbom.json --output-format json
+        run: npx @cyclonedx/cyclonedx-npm --ignore-npm-errors --output-file sbom.json --output-format json
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v4
         with:
